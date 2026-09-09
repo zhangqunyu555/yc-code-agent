@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "yc-code-agent"
+version = "0.1.0"
+description = "A small, auditable coding agent and evaluation harness"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "YC-Code Agent contributors"}]
+dependencies = []
+
+[project.scripts]
+yc-agent = "yc_code_agent.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/yc_code_agent"]
