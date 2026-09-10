@@ -41,6 +41,17 @@ class ToolRepairProvider:
         }
 
 
+class ToolLoopProvider:
+    last_usage = {}
+
+    def complete(self, messages, tools):
+        return {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": str(len(messages)), "type": "function", "function": {"name": "read", "arguments": json.dumps({"path": "solution.py"})}}],
+        }
+
+
 class BenchmarkTest(unittest.TestCase):
     def test_catalog_has_twenty_unique_valid_tasks(self):
         self.assertEqual(len(TASKS), 20)
@@ -61,6 +72,11 @@ class BenchmarkTest(unittest.TestCase):
         result = run_task(task, "tool", lambda: ToolRepairProvider(task), execution_mode="local")
         self.assertTrue(result["success"], result)
         self.assertEqual(result["tool_calls"], 3)
+
+    def test_step_limit_keeps_partial_usage_metrics(self):
+        result = run_task(TASKS[0], "tool", ToolLoopProvider, execution_mode="local")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["tool_calls"], 12)
 
     def test_rollout_export_and_pass_at_k(self):
         task = TASKS[0]

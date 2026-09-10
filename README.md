@@ -124,6 +124,8 @@ PYTHONPATH=src python3 -m yc_code_agent benchmark --limit 20 --samples 3 --tempe
 
 同一次实验应固定模型、任务版本、执行模式和 Agent 步数预算。当前仓库只保存参考修复验证结果，不冒充真实模型对比结果。
 
+仓库另保存一次3题诊断实验 [`outputs/agent-ablation-smoke.json`](outputs/agent-ablation-smoke.json)：四组均为3/3，Tool Agent未在简单单文件题上提高准确率，却消耗了约46倍于Direct的Token。该结果用于暴露并修复工具权限、无关文件写入和步数上限统计问题；由于只有3题且每题1次采样，不作为正式Benchmark结论。
+
 生成供后续人工审查的偏好对索引：
 
 ```bash

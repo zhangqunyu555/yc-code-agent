@@ -70,8 +70,9 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(result.messages[-2]["tool_call_id"], "demo_read_1")
 
     def test_step_limit(self):
-        with self.assertRaises(StepLimitExceeded):
+        with self.assertRaises(StepLimitExceeded) as raised:
             Agent(LoopProvider(), ToolRegistry(), max_steps=2).run("loop")
+        self.assertEqual(raised.exception.result.tool_calls, 2)
 
     def test_transient_retry(self):
         provider = RetryProvider()

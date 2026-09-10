@@ -15,6 +15,10 @@ class RetryableProviderError(RuntimeError):
 class StepLimitExceeded(RuntimeError):
     """The model kept requesting tools beyond the configured budget."""
 
+    def __init__(self, message: str, result: Any | None = None) -> None:
+        super().__init__(message)
+        self.result = result
+
 
 class Provider(Protocol):
     last_usage: dict[str, int]
@@ -144,4 +148,6 @@ class Agent:
                 self._event("tool_end", step=step, call_id=call_id, tool=name, arguments=arguments, result=content)
 
         self._event("agent_error", error="step_limit", max_steps=self.max_steps)
-        raise StepLimitExceeded(f"agent exceeded {self.max_steps} model steps")
+        elapsed = int((time.monotonic() - started) * 1000)
+        partial = AgentResult("", messages, model_calls, tool_calls, input_tokens, output_tokens, elapsed)
+        raise StepLimitExceeded(f"agent exceeded {self.max_steps} model steps", partial)

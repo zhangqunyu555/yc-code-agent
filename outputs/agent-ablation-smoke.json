@@ -1,0 +1,79 @@
+{
+  "kind": "diagnostic_smoke_test",
+  "model": "deepseek-v4-flash",
+  "temperature": 0.6,
+  "task_ids": [
+    "yc-01",
+    "yc-02",
+    "yc-03"
+  ],
+  "samples_per_task": 1,
+  "summary": {
+    "direct": {
+      "rollouts": 3,
+      "tasks": 3,
+      "samples_per_task": 1,
+      "success_rate": 1.0,
+      "pass_at_k": 1.0,
+      "first_success_rate": 1.0,
+      "avg_reward": 0.9953333333333333,
+      "avg_tool_calls": 0.0,
+      "avg_latency_ms": 1102.0,
+      "total_input_tokens": 307,
+      "total_output_tokens": 175,
+      "irrelevant_change_tasks": 0
+    },
+    "read_only": {
+      "rollouts": 3,
+      "tasks": 3,
+      "samples_per_task": 1,
+      "success_rate": 1.0,
+      "pass_at_k": 1.0,
+      "first_success_rate": 1.0,
+      "avg_reward": 0.9913333333333334,
+      "avg_tool_calls": 4.0,
+      "avg_latency_ms": 3419.3333333333335,
+      "total_input_tokens": 7361,
+      "total_output_tokens": 739,
+      "irrelevant_change_tasks": 0
+    },
+    "tool": {
+      "rollouts": 3,
+      "tasks": 3,
+      "samples_per_task": 1,
+      "success_rate": 1.0,
+      "pass_at_k": 1.0,
+      "first_success_rate": 1.0,
+      "avg_reward": 0.9886666666666667,
+      "avg_tool_calls": 6.666666666666667,
+      "avg_latency_ms": 7092.666666666667,
+      "total_input_tokens": 20662,
+      "total_output_tokens": 1622,
+      "irrelevant_change_tasks": 0
+    },
+    "tool_retry": {
+      "rollouts": 3,
+      "tasks": 3,
+      "samples_per_task": 1,
+      "success_rate": 1.0,
+      "pass_at_k": 1.0,
+      "first_success_rate": 1.0,
+      "avg_reward": 0.989,
+      "avg_tool_calls": 6.333333333333333,
+      "avg_latency_ms": 6513.666666666667,
+      "total_input_tokens": 19293,
+      "total_output_tokens": 1477,
+      "irrelevant_change_tasks": 0
+    }
+  },
+  "finding": "All profiles solved 3/3; tools did not improve accuracy on these simple tasks and cost substantially more tokens.",
+  "framework_fix": {
+    "before": "Tool runs created unrelated test files and step-limit failures were under-counted.",
+    "after": "Benchmark denies write, constrains edits to solution.py, records partial step-limit usage, and clears recovered errors."
+  },
+  "limitations": [
+    "Only three simple single-file tasks.",
+    "One stochastic sample per task/profile.",
+    "Diagnostic results are not a final benchmark or an RL result."
+  ]
+}

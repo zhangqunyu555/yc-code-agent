@@ -74,7 +74,7 @@ def _prompt(task: Task, profile: str) -> str:
     if profile in {"direct", "read_only"}:
         base += '\n只返回 JSON：{"edits":[{"path":"solution.py","old":"精确原文","new":"替换文本"}]}。'
     else:
-        base += "\n使用工具检查并修复 solution.py。修改后运行测试；完成时简短说明。"
+        base += "\n使用工具检查并修复 solution.py。只允许修改 solution.py，不要创建或修改测试文件；修复并运行一次测试后停止，简短说明结果。"
     return base
 
 
@@ -99,7 +99,16 @@ def run_task(
         workspace = Workspace(root)
         provider = provider_factory()
         read_only = profile == "read_only"
-        registry = ToolRegistry() if profile == "direct" else build_tools(root, execution_mode=execution_mode, read_only=read_only)
+        if profile == "direct":
+            registry = ToolRegistry()
+        elif read_only:
+            registry = build_tools(root, execution_mode=execution_mode, read_only=True)
+        else:
+            registry = build_tools(
+                root,
+                execution_mode=execution_mode,
+                allowed_tools={"list_files", "read", "search", "edit", "bash", "test"},
+            )
         trace_path = Path(trace_dir) / f"{task.id}-{profile}-sample-{sample_id}.jsonl" if trace_dir else None
         agent = Agent(provider, registry, max_steps=1 if profile == "direct" else 12, trace=JsonlTrace(trace_path) if trace_path else None)
         rounds = 2 if profile == "tool_retry" else 1
@@ -120,8 +129,13 @@ def run_task(
                 success, output = _evaluate(task, root, execution_mode)
                 first_success = success if round_number == 1 else first_success
                 if success:
+                    error = ""
                     break
             except Exception as exc:
+                partial = getattr(exc, "result", None)
+                if partial:
+                    for key in totals:
+                        totals[key] += getattr(partial, key)
                 error = str(exc)
                 output = error
 
