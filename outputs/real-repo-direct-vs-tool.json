@@ -1,0 +1,54 @@
+{
+  "kind": "matched_real_repository_direct_vs_tool",
+  "model": "deepseek-v4-flash",
+  "temperature": 0.6,
+  "source": {
+    "repository": "https://github.com/grantjenks/python-sortedcontainers",
+    "commit": "3ac358631f58c1347f1d6d2d92784117db0f38ed",
+    "license": "Apache-2.0",
+    "task_type": "synthetic regression in a real repository"
+  },
+  "controlled": {
+    "issue": "SortedSet.add updates membership and length but leaves iteration and indexing stale.",
+    "mutation": "Removed self._list.add(value) from SortedSet.add.",
+    "verifier": "python3 -m unittest tests.test_yc_agent_issue -v",
+    "initial_verifier": "FAIL for both isolated copies",
+    "final_verifier": "PASS for both isolated copies",
+    "final_production_file": "matches upstream for both"
+  },
+  "profiles": {
+    "direct_oracle_context": {
+      "input": "Issue plus the correct 40-line production window and verifier source.",
+      "actions": "One model response containing a structured exact edit; no tools.",
+      "success": true,
+      "model_calls": 1,
+      "tool_calls": 0,
+      "input_tokens": 542,
+      "output_tokens": 93,
+      "elapsed_ms": 994,
+      "trace_sha256": "83dd293eed2f023127954d7ac8ba3328b8142d23f507d9edb82088202d37fd11"
+    },
+    "tool_agent": {
+      "input": "Issue only, with full repository access through bounded tools.",
+      "actions": "Agent must discover, search, read, edit, and test.",
+      "success": true,
+      "model_calls": 11,
+      "tool_calls": 14,
+      "input_tokens": 57762,
+      "output_tokens": 1059,
+      "elapsed_ms": 12014,
+      "trace_sha256": "40211fbecdb278c87566b67bf21c5f09860a1c3640ce3d9798de302970fa28d7"
+    }
+  },
+  "ratios": {
+    "tool_vs_direct_input_tokens": 106.57,
+    "tool_vs_direct_latency": 12.09
+  },
+  "finding": "Oracle-localized Direct is far cheaper when the correct context is already known. Tool Agent succeeds without localization hints, so its value must be measured on tasks where finding and validating the change is necessary.",
+  "limitations": [
+    "One synthetic regression.",
+    "One stochastic sample per profile.",
+    "Direct receives oracle-localized context, so this is a cost upper bound rather than an equal-information accuracy comparison.",
+    "Not a SWE-bench score."
+  ]
+}

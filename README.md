@@ -128,6 +128,8 @@ PYTHONPATH=src python3 -m yc_code_agent benchmark --limit 20 --samples 3 --tempe
 
 第一次真实多文件仓库诊断记录在 [`outputs/real-repo-smoke-sortedcontainers.json`](outputs/real-repo-smoke-sortedcontainers.json)：在固定版本的Apache-2.0开源仓库`python-sortedcontainers`中注入一个明确标注的合成回归，DeepSeek V4 Flash通过文件发现、符号搜索、局部读取、编辑和测试，将`SortedSet`内部两个数据结构恢复同步，外部Verifier由FAIL变为PASS，最终生产文件与上游正确版本一致。该单题证明仓库级链路可运行，也暴露出102,229输入Token和无效Shell尝试的效率问题；它不是上游真实Issue或SWE-bench成绩。
 
+同一回归的匹配对照见 [`outputs/real-repo-direct-vs-tool.json`](outputs/real-repo-direct-vs-tool.json)。`Direct + Oracle Context`直接获得正确的40行代码窗口和Verifier，一次调用使用542输入Token；Tool Agent只获得Issue并自行探索完整仓库，使用57,762输入Token。两者均通过。该结果说明已有准确定位时Direct显著更便宜，不能证明Agent提高准确率；Agent价值需要在修改位置未知、必须探索与验证的多任务集合上评估。
+
 生成供后续人工审查的偏好对索引：
 
 ```bash

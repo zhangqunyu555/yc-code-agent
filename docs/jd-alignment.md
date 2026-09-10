@@ -32,6 +32,8 @@ YC-Code Agent 是独立实现的轻量代码 Agent 与 rollout/evaluation harnes
 
 当前已完成一次真实开源仓库上的合成回归诊断，证明多文件发现、定位、编辑和 verifier 链路可运行。下一阶段需要将这一过程固化为通用任务协议，并扩大到公开任务子集；单题成功不代表仓库级成功率。
 
+该任务同时保留 `Direct + Oracle Context` 基线。Direct用于回答“正确上下文已知时是否还需要Agent”，Read-only Agent用于分离定位收益，Tool Agent用于衡量自主定位、修改与测试的端到端效果；三组必须使用相同模型、温度、仓库版本和Verifier。
+
 ## Agentic RL 路线
 
 ### 当前无 GPU 阶段
