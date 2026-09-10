@@ -9,7 +9,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from .benchmark import PROFILES, build_preferences, run_task, summarize, validate_catalog
+from .benchmark import PROFILES, build_preferences, build_rollout_dataset, run_task, summarize, validate_catalog
 from .core import Agent
 from .providers import DemoProvider, OpenAICompatibleProvider
 from .state import StateStore
@@ -22,20 +22,26 @@ def _provider_settings(args: argparse.Namespace) -> dict[str, object]:
     provider = args.provider or os.environ.get("YC_AGENT_PROVIDER", "deepseek")
     if provider == "deepseek":
         thinking = args.thinking or os.environ.get("DEEPSEEK_THINKING", "disabled")
-        return {
+        settings = {
             "model": args.model or os.environ.get("YC_AGENT_MODEL", "deepseek-v4-flash"),
             "base_url": args.base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
             "api_key_env": "DEEPSEEK_API_KEY",
             "request_options": {"thinking": {"type": thinking}},
         }
+        if getattr(args, "temperature", None) is not None:
+            settings["request_options"]["temperature"] = args.temperature
+        return settings
     model = args.model or os.environ.get("YC_AGENT_MODEL")
     if not model:
         raise SystemExit("openai-compatible provider requires --model or YC_AGENT_MODEL")
-    return {
+    settings = {
         "model": model,
         "base_url": args.base_url or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         "api_key_env": "OPENAI_API_KEY",
     }
+    if getattr(args, "temperature", None) is not None:
+        settings["request_options"] = {"temperature": args.temperature}
+    return settings
 
 
 def _provider(args: argparse.Namespace) -> OpenAICompatibleProvider:
@@ -49,6 +55,7 @@ def _add_provider_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model")
     parser.add_argument("--base-url")
     parser.add_argument("--thinking", choices=("enabled", "disabled"))
+    parser.add_argument("--temperature", type=float)
 
 
 def _write_json(path: str | Path, data: object) -> None:
@@ -82,12 +89,17 @@ def main(argv: list[str] | None = None) -> None:
     _add_provider_args(benchmark)
     benchmark.add_argument("--profiles", default=",".join(PROFILES))
     benchmark.add_argument("--limit", type=int, default=len(TASKS))
+    benchmark.add_argument("--samples", type=int, default=1, help="independent rollouts per task/profile")
     benchmark.add_argument("--execution", choices=("sandbox", "local"), default="sandbox")
     benchmark.add_argument("--output")
 
     preferences = subparsers.add_parser("preferences", help="derive trace preference pairs from benchmark results")
     preferences.add_argument("input")
     preferences.add_argument("--output", default="outputs/preferences.json")
+
+    dataset = subparsers.add_parser("dataset", help="export rollout and preference JSONL for post-training")
+    dataset.add_argument("input")
+    dataset.add_argument("--output-dir", default="datasets/latest")
 
     goal = subparsers.add_parser("goal", help="manage the durable FIFO goal queue")
     goal.add_argument("action", choices=("add", "list"))
@@ -152,6 +164,25 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps({"pairs": len(pairs), "output": args.output}, ensure_ascii=False))
         return
 
+    if args.command == "dataset":
+        payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        episodes = build_rollout_dataset(payload["results"])
+        pairs = build_preferences(payload["results"], include_messages=True)
+        for name, rows in (("rollouts.jsonl", episodes), ("preferences.jsonl", pairs)):
+            with (output_dir / name).open("w", encoding="utf-8") as handle:
+                for row in rows:
+                    handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        _write_json(output_dir / "manifest.json", {
+            "source": str(Path(args.input)),
+            "model": payload.get("model"),
+            "rollouts": len(episodes),
+            "preference_pairs": len(pairs),
+        })
+        print(json.dumps({"output_dir": str(output_dir), "rollouts": len(episodes), "preference_pairs": len(pairs)}, ensure_ascii=False))
+        return
+
     if args.command == "goal":
         with StateStore(args.state_db) as store:
             if args.action == "add":
@@ -166,13 +197,33 @@ def main(argv: list[str] | None = None) -> None:
     unknown = set(profiles) - set(PROFILES)
     if unknown:
         raise SystemExit(f"unknown profiles: {', '.join(sorted(unknown))}")
+    if args.samples < 1:
+        raise SystemExit("--samples must be positive")
     output = args.output or f"benchmark-results/{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
     trace_dir = str(Path(output).with_suffix("")) + "-traces"
     rows = []
     for task in TASKS[: args.limit]:
         for profile in profiles:
-            rows.append(run_task(task, profile, lambda: _provider(args), execution_mode=args.execution, trace_dir=trace_dir))
-            print(f"{task.id} {profile}: {'PASS' if rows[-1]['success'] else 'FAIL'}")
-    payload = {"model": _provider_settings(args)["model"], "summary": summarize(rows), "results": rows}
+            for sample_id in range(args.samples):
+                rows.append(run_task(task, profile, lambda: _provider(args), execution_mode=args.execution, trace_dir=trace_dir, sample_id=sample_id))
+                print(f"{task.id} {profile} sample={sample_id}: {'PASS' if rows[-1]['success'] else 'FAIL'}")
+    provider_settings = _provider_settings(args)
+    payload = {
+        "created_at": datetime.now().astimezone().isoformat(),
+        "model": provider_settings["model"],
+        "profiles": profiles,
+        "samples": args.samples,
+        "task_count": min(args.limit, len(TASKS)),
+        "task_ids": [task.id for task in TASKS[: args.limit]],
+        "config": {
+            "provider": args.provider or os.environ.get("YC_AGENT_PROVIDER", "deepseek"),
+            "base_url": provider_settings["base_url"],
+            "request_options": provider_settings.get("request_options", {}),
+            "execution": args.execution,
+            "step_budget": {"direct": 1, "agent": 12},
+        },
+        "summary": summarize(rows),
+        "results": rows,
+    }
     _write_json(output, payload)
     print(json.dumps({"output": output, "summary": payload["summary"]}, ensure_ascii=False, indent=2))

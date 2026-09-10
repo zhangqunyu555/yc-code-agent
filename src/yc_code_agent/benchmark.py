@@ -84,6 +84,7 @@ def run_task(
     *,
     execution_mode: str = "sandbox",
     trace_dir: str | Path | None = None,
+    sample_id: int = 0,
 ) -> dict[str, Any]:
     if profile not in PROFILES:
         raise ValueError(f"unknown profile: {profile}")
@@ -98,7 +99,7 @@ def run_task(
         provider = provider_factory()
         read_only = profile == "read_only"
         registry = ToolRegistry() if profile == "direct" else build_tools(root, execution_mode=execution_mode, read_only=read_only)
-        trace_path = Path(trace_dir) / f"{task.id}-{profile}.jsonl" if trace_dir else None
+        trace_path = Path(trace_dir) / f"{task.id}-{profile}-sample-{sample_id}.jsonl" if trace_dir else None
         agent = Agent(provider, registry, max_steps=1 if profile == "direct" else 12, trace=JsonlTrace(trace_path) if trace_path else None)
         rounds = 2 if profile == "tool_retry" else 1
         history = None
@@ -127,10 +128,17 @@ def run_task(
         changed_files, changed_lines = _changed(before, after)
         irrelevant = [path for path in changed_files if path not in task.allowed_paths]
         elapsed_ms = int((time.monotonic() - started) * 1000)
-        reward = (1.0 if success else 0.0) - 0.002 * changed_lines - 0.001 * totals["tool_calls"]
+        reward_components = {
+            "tests": 1.0 if success else 0.0,
+            "changed_lines": -0.002 * changed_lines,
+            "tool_calls": -0.001 * totals["tool_calls"],
+            "irrelevant_files": -0.1 * len(irrelevant),
+        }
+        reward = sum(reward_components.values())
         return {
             "task_id": task.id,
             "profile": profile,
+            "sample_id": sample_id,
             "success": success,
             "first_success": first_success,
             "rounds": round_number,
@@ -140,6 +148,7 @@ def run_task(
             "changed_lines": changed_lines,
             "irrelevant_changes": irrelevant,
             "reward": round(reward, 6),
+            "reward_components": {key: round(value, 6) for key, value in reward_components.items()},
             "test_output": output[-2000:],
             "error": error,
             "trace": str(trace_path) if trace_path else None,
@@ -164,36 +173,85 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     groups: dict[str, list[dict[str, Any]]] = {}
     for result in results:
         groups.setdefault(result["profile"], []).append(result)
-    return {
-        profile: {
-            "tasks": len(rows),
+    report = {}
+    for profile, rows in groups.items():
+        tasks: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            tasks.setdefault(row["task_id"], []).append(row)
+        report[profile] = {
+            "rollouts": len(rows),
+            "tasks": len(tasks),
+            "samples_per_task": max(len(samples) for samples in tasks.values()),
             "success_rate": sum(row["success"] for row in rows) / len(rows),
+            "pass_at_k": sum(any(row["success"] for row in samples) for samples in tasks.values()) / len(tasks),
             "first_success_rate": sum(row["first_success"] for row in rows) / len(rows),
+            "avg_reward": sum(row["reward"] for row in rows) / len(rows),
             "avg_tool_calls": sum(row["tool_calls"] for row in rows) / len(rows),
             "avg_latency_ms": sum(row["elapsed_ms"] for row in rows) / len(rows),
             "total_input_tokens": sum(row["input_tokens"] for row in rows),
             "total_output_tokens": sum(row["output_tokens"] for row in rows),
             "irrelevant_change_tasks": sum(bool(row["irrelevant_changes"]) for row in rows),
         }
-        for profile, rows in groups.items()
-    }
+    return report
 
 
-def build_preferences(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Choose the best and worst traced run per task for later preference-data review."""
-    groups: dict[str, list[dict[str, Any]]] = {}
+def load_trajectory(path: str | Path) -> list[dict[str, Any]]:
+    """Reconstruct the observable rollout messages from an append-only trace."""
+    messages: list[dict[str, Any]] = []
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        record = json.loads(line)
+        if record["event"] == "agent_start":
+            messages.append({"role": "user", "content": record["prompt"]})
+        elif record["event"] == "model_end":
+            messages.append(record["reply"])
+        elif record["event"] == "tool_end":
+            messages.append({
+                "role": "tool",
+                "tool_call_id": record.get("call_id", ""),
+                "content": record["result"],
+            })
+    return messages
+
+
+def build_rollout_dataset(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Export verifier-labelled episodes without assuming a specific RL trainer."""
+    episodes = []
+    for row in results:
+        trace = row.get("trace")
+        if not trace or not Path(trace).is_file():
+            continue
+        episodes.append({
+            "task_id": row["task_id"],
+            "profile": row["profile"],
+            "sample_id": row.get("sample_id", 0),
+            "messages": load_trajectory(trace),
+            "reward": row["reward"],
+            "reward_components": row.get("reward_components", {}),
+            "success": row["success"],
+        })
+    return episodes
+
+
+def build_preferences(results: list[dict[str, Any]], *, include_messages: bool = False) -> list[dict[str, Any]]:
+    """Choose contrasting rollouts that used the same task prompt and tool profile."""
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for result in results:
         if result.get("trace"):
-            groups.setdefault(result["task_id"], []).append(result)
+            groups.setdefault((result["task_id"], result["profile"]), []).append(result)
     pairs = []
-    for task_id, rows in groups.items():
+    for (task_id, profile), rows in groups.items():
         ranked = sorted(rows, key=lambda row: (row["success"], row["reward"]), reverse=True)
         if len(ranked) >= 2 and ranked[0]["reward"] != ranked[-1]["reward"]:
-            pairs.append({
+            pair = {
                 "task_id": task_id,
+                "profile": profile,
                 "chosen_trace": ranked[0]["trace"],
                 "chosen_reward": ranked[0]["reward"],
                 "rejected_trace": ranked[-1]["trace"],
                 "rejected_reward": ranked[-1]["reward"],
-            })
+            }
+            if include_messages:
+                pair["chosen"] = load_trajectory(ranked[0]["trace"])
+                pair["rejected"] = load_trajectory(ranked[-1]["trace"])
+            pairs.append(pair)
     return pairs

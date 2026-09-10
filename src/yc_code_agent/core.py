@@ -117,7 +117,7 @@ class Agent:
                     content = json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
                 tool_calls += 1
                 messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
-                self._event("tool_end", step=step, tool=name, arguments=arguments, result=content)
+                self._event("tool_end", step=step, call_id=call_id, tool=name, arguments=arguments, result=content)
 
         self._event("agent_error", error="step_limit", max_steps=self.max_steps)
         raise StepLimitExceeded(f"agent exceeded {self.max_steps} model steps")

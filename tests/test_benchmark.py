@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 
-from yc_code_agent.benchmark import run_task, summarize, validate_catalog
+from yc_code_agent.benchmark import build_preferences, build_rollout_dataset, run_task, summarize, validate_catalog
 from yc_code_agent.task_catalog import TASKS
 
 
@@ -61,6 +61,19 @@ class BenchmarkTest(unittest.TestCase):
         result = run_task(task, "tool", lambda: ToolRepairProvider(task), execution_mode="local")
         self.assertTrue(result["success"], result)
         self.assertEqual(result["tool_calls"], 3)
+
+    def test_rollout_export_and_pass_at_k(self):
+        task = TASKS[0]
+        with tempfile.TemporaryDirectory() as directory:
+            passed = run_task(task, "direct", lambda: OracleProvider(task), execution_mode="local", trace_dir=directory, sample_id=0)
+            failed = {**passed, "sample_id": 1, "success": False, "reward": -1.0}
+            failed["trace"] = passed["trace"]
+            report = summarize([passed, failed])["direct"]
+            episodes = build_rollout_dataset([passed])
+            pairs = build_preferences([passed, failed], include_messages=True)
+        self.assertEqual(report["pass_at_k"], 1.0)
+        self.assertEqual(episodes[0]["messages"][0]["role"], "user")
+        self.assertIn("chosen", pairs[0])
 
 
 if __name__ == "__main__":

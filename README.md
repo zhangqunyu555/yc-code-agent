@@ -1,6 +1,6 @@
 # YC-Code Agent
 
-一个从零实现、可审计的 Python 代码 Agent 与评测闭环。项目把模型调用、Agent Loop、工作区工具、错误重试、轨迹记录和四组对照评测连成一条可运行链路；本机不需要 GPU，真实模型通过 OpenAI-compatible API 提供。
+一个从零实现、可审计的 Python 代码 Agent、rollout 与评测闭环。项目把模型调用、Agent Loop、工作区工具、错误重试、轨迹记录、四组对照评测和后训练数据导出连成一条可运行链路；本机不需要 GPU，真实模型通过 OpenAI-compatible API 提供。
 
 ## 已实现
 
@@ -14,7 +14,8 @@
 - 20 个自建 Python 修复任务，每题包含公开导入测试、受保护语义测试和参考修复。
 - `Direct LLM`、`Read-only Agent`、`Tool Agent`、`Tool Agent + Retry` 四组同任务评测。
 - 成功率、首次成功率、工具调用、修复轮数、Token、延迟、改动行数和无关改动统计。
-- 基于测试、patch 范围和工具成本的初始 reward，以及轨迹偏好对导出。
+- 同一任务多次 rollout、经验性 Pass@k，以及测试、patch 范围和工具成本组成的可解释 reward。
+- 导出 verifier 标注的 episode JSONL 和 chosen/rejected 轨迹对，为后续 SFT、DPO 或 Agentic RL 数据适配提供输入。
 
 ## 架构
 
@@ -89,11 +90,11 @@ PYTHONPATH=src python3 -m yc_code_agent run --next-goal
 
 ## 四组评测
 
-先用 1 题确认 API 和模型格式，再运行完整 20 题：
+先用 1 题确认 API 和模型格式，再运行完整 20 题。`--samples` 控制每个任务和配置的独立 rollout 次数：
 
 ```bash
 PYTHONPATH=src python3 -m yc_code_agent benchmark --limit 1
-PYTHONPATH=src python3 -m yc_code_agent benchmark --limit 20
+PYTHONPATH=src python3 -m yc_code_agent benchmark --limit 20 --samples 3 --temperature 0.6
 ```
 
 评测为每个任务创建独立临时工作区。模型运行结束后才注入受保护测试，失败不会污染下一题。完整结果写到 `benchmark-results/`，每次 Agent 轨迹写到对应的 `*-traces/`。
@@ -115,14 +116,25 @@ PYTHONPATH=src python3 -m yc_code_agent benchmark --limit 20
 PYTHONPATH=src python3 -m yc_code_agent preferences benchmark-results/RESULT.json
 ```
 
-这一步只整理轨迹，不训练模型。DPO/GRPO 需要可训练的开源模型与个人或明确获批的 GPU。
+导出与训练框架无关的 rollout episode 和完整偏好对：
+
+```bash
+PYTHONPATH=src python3 -m yc_code_agent dataset benchmark-results/RESULT.json \
+  --output-dir datasets/deepseek-v4-flash
+```
+
+目录中包含 `rollouts.jsonl`、`preferences.jsonl` 和 `manifest.json`。每条 rollout 保存任务、配置、sample id、可观察消息、总 reward、分项 reward 和 verifier 结果；偏好对只在相同任务和相同工具配置的多次采样之间生成。这一步只生成数据，不宣称已经完成 RL 训练。DPO/GRPO 需要可训练的开源模型与个人或明确获批的 GPU。
+
+## 与主流框架的关系
+
+本项目参考代码 Agent 的通用 Agent Loop、工具系统、workspace 和 session 设计，但不复制 OpenClaw、OpenCode、Claude Code 或 SWE-agent 的实现。它聚焦可审计的最小运行时和后训练所需的 rollout/evaluation 数据闭环。源码学习范围、当前差距与 Agentic RL 路线见 [docs/jd-alignment.md](docs/jd-alignment.md)。
 
 ## 可核验的简历写法
 
-> 从零实现轻量级 Python 代码 Agent，打通 OpenAI-compatible Provider、Agent Loop、5 类工作区工具、SQLite Memory/Goal Queue、有界重试与 JSONL 轨迹；设计路径越界防护、命令白名单、超时/输出限制和 macOS 沙箱执行。自建并验证 20 个隔离式代码修复任务，搭建 Direct、Read-only、Tool、Tool+Retry 四组评测，统计成功率、首次成功率、Token/延迟、修复轮数与无关改动，并产出 reward 与轨迹偏好数据。
+> 从零实现轻量级 Python 代码 Agent，打通 OpenAI-compatible Provider、Agent Loop、5 类工作区工具、SQLite Memory/Goal Queue、有界重试与 JSONL 轨迹；设计路径越界防护、命令白名单、超时/输出限制和 macOS 沙箱执行。自建并验证 20 个隔离式代码修复任务，搭建 Direct、Read-only、Tool、Tool+Retry 四组多次 rollout 评测，统计成功率、Pass@k、Token/延迟、修复轮数与无关改动，并导出分项 reward、verifier 标注轨迹和偏好数据。
 
 完成真实模型实验后，再把实际模型名、成功率变化、Token 成本和样本规模补入简历；不要把参考修复 20/20 写成 Agent 成功率。
 
 ## 项目边界
 
-当前命令执行器面向 Python 小任务，刻意只允许 `python -m unittest/pytest`、`pytest`、`git diff/status`。当评测扩展到多语言仓库时，再增加容器执行器和按任务声明的命令策略。并行子 Agent 和在线 RL 不参与当前实验变量，避免把评测差异混入未验证的复杂度。
+当前命令执行器面向 Python 小任务，刻意只允许 `python -m unittest/pytest`、`pytest`、`git diff/status`。当评测扩展到多语言仓库时，再增加容器执行器和按任务声明的命令策略。并行子 Agent 和在线 RL 不参与当前实验变量，避免把评测差异混入未验证的复杂度。当前 JSONL 是框架无关的中间数据，不声称已经兼容某个训练器的专用 schema。
