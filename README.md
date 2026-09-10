@@ -75,6 +75,8 @@ thinking = disabled
 
 需要思考模式时加 `--thinking enabled`。Provider 会保留并回传 DeepSeek 的 `reasoning_content`，确保思考模式下的多轮工具调用符合接口要求。
 
+如果 python.org 安装的 macOS Python 报 `CERTIFICATE_VERIFY_FAILED`，在 `.env` 中设置 `SSL_CERT_FILE=/etc/ssl/cert.pem`，继续使用系统 CA 验证；不要通过关闭 TLS 校验绕过错误。
+
 持久化会话和任务队列：
 
 ```bash
