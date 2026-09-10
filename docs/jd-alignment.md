@@ -17,7 +17,7 @@ YC-Code Agent 是独立实现的最小代码 Agent 与 rollout/evaluation harnes
 | 完整运行轨迹 | `trace.py` | SWE-agent trajectory |
 | 环境复位、隐藏测试与 patch 指标 | `benchmark.py` | SWE-bench、Terminal-Bench/Harbor |
 | 多次 rollout、Pass@k 与 reward | `benchmark.py` | Agentic RL rollout/reward pipeline |
-| episode 与 preference JSONL | `dataset` 命令 | SFT/DPO/GRPO trainer adapter |
+| episode、group-relative advantage 与 preference JSONL | `dataset` 命令 | SFT/DPO/GRPO trainer adapter |
 
 ## 面试前完成标准
 
@@ -34,7 +34,7 @@ YC-Code Agent 是独立实现的最小代码 Agent 与 rollout/evaluation harnes
 ### 当前无 GPU 阶段
 
 - 多次 rollout，记录 messages、tool observations、token、latency、patch 和 verifier 结果。
-- 将 reward 拆为测试通过、改动规模、工具成本和越界修改四项，先检查 reward 是否符合人工偏好。
+- 将 reward 拆为测试通过、改动规模、工具成本和越界修改四项，并在同任务同工具配置的多次采样内计算标准化 advantage。
 - 导出 episode 与 chosen/rejected 数据；按任务切分训练集和验证集，避免同题泄漏。
 - 比较 Direct、Read-only、Tool、Tool+Retry，分析工具和外部反馈各自带来的收益。
 
@@ -43,7 +43,7 @@ YC-Code Agent 是独立实现的最小代码 Agent 与 rollout/evaluation harnes
 1. 选择可训练的开源代码模型和一个实际训练框架。
 2. 先用成功轨迹做小规模 SFT，验证模型输出仍能遵守工具协议。
 3. 用同任务多轨迹构造偏好对做 DPO，和 SFT checkpoint 使用同一验证集比较。
-4. reward 经人工抽查稳定后再做 GRPO；rollout worker 调用隔离环境中的 verifier，将组内归一化优势交给训练器。
+4. reward 经人工抽查稳定后再做 GRPO；rollout worker 调用隔离环境中的 verifier，将当前数据管线生成的组内标准化优势交给训练器。
 5. 报告 held-out success rate、Pass@k、平均 token/工具调用、无关修改率和训练成本，并保存可复现实验配置。
 
 暂不实现一个假的“RL trainer”。当前最小且真实的接口是 `rollouts.jsonl`；等确定具体模型与训练框架后，再增加一次 schema 转换和训练配置。

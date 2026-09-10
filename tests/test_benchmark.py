@@ -69,10 +69,11 @@ class BenchmarkTest(unittest.TestCase):
             failed = {**passed, "sample_id": 1, "success": False, "reward": -1.0}
             failed["trace"] = passed["trace"]
             report = summarize([passed, failed])["direct"]
-            episodes = build_rollout_dataset([passed])
+            episodes = build_rollout_dataset([passed, failed])
             pairs = build_preferences([passed, failed], include_messages=True)
         self.assertEqual(report["pass_at_k"], 1.0)
         self.assertEqual(episodes[0]["messages"][0]["role"], "user")
+        self.assertEqual([row["advantage"] for row in episodes], [1.0, -1.0])
         self.assertIn("chosen", pairs[0])
 
 

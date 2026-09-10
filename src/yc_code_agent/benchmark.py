@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import math
 import shutil
 import tempfile
 import time
@@ -229,6 +230,17 @@ def build_rollout_dataset(results: list[dict[str, Any]]) -> list[dict[str, Any]]
             "reward_components": row.get("reward_components", {}),
             "success": row["success"],
         })
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for episode in episodes:
+        groups.setdefault((episode["task_id"], episode["profile"]), []).append(episode)
+    for samples in groups.values():
+        mean = sum(row["reward"] for row in samples) / len(samples)
+        variance = sum((row["reward"] - mean) ** 2 for row in samples) / len(samples)
+        std = math.sqrt(variance)
+        for row in samples:
+            row["group_reward_mean"] = round(mean, 6)
+            row["group_reward_std"] = round(std, 6)
+            row["advantage"] = round((row["reward"] - mean) / std, 6) if std else 0.0
     return episodes
 
 

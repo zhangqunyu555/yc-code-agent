@@ -15,7 +15,7 @@
 - `Direct LLM`、`Read-only Agent`、`Tool Agent`、`Tool Agent + Retry` 四组同任务评测。
 - 成功率、首次成功率、工具调用、修复轮数、Token、延迟、改动行数和无关改动统计。
 - 同一任务多次 rollout、经验性 Pass@k，以及测试、patch 范围和工具成本组成的可解释 reward。
-- 导出 verifier 标注的 episode JSONL 和 chosen/rejected 轨迹对，为后续 SFT、DPO 或 Agentic RL 数据适配提供输入。
+- 导出 verifier 标注的 episode JSONL、同任务组内标准化 advantage 和 chosen/rejected 轨迹对，为后续 SFT、DPO 或 Agentic RL 数据适配提供输入。
 
 ## 架构
 
@@ -123,7 +123,7 @@ PYTHONPATH=src python3 -m yc_code_agent dataset benchmark-results/RESULT.json \
   --output-dir datasets/deepseek-v4-flash
 ```
 
-目录中包含 `rollouts.jsonl`、`preferences.jsonl` 和 `manifest.json`。每条 rollout 保存任务、配置、sample id、可观察消息、总 reward、分项 reward 和 verifier 结果；偏好对只在相同任务和相同工具配置的多次采样之间生成。这一步只生成数据，不宣称已经完成 RL 训练。DPO/GRPO 需要可训练的开源模型与个人或明确获批的 GPU。
+目录中包含 `rollouts.jsonl`、`preferences.jsonl` 和 `manifest.json`。每条 rollout 保存任务、配置、sample id、可观察消息、总 reward、分项 reward、verifier 结果和同任务同配置组内标准化 advantage；偏好对也只在这一组内生成。这一步完成 GRPO 所需的采样、奖励与相对优势数据准备，不宣称已经完成 Policy Update。DPO/GRPO 训练需要可训练的开源模型与个人或明确获批的 GPU。
 
 ## 与主流框架的关系
 
@@ -131,7 +131,7 @@ PYTHONPATH=src python3 -m yc_code_agent dataset benchmark-results/RESULT.json \
 
 ## 可核验的简历写法
 
-> 从零实现轻量级 Python 代码 Agent，打通 OpenAI-compatible Provider、Agent Loop、5 类工作区工具、SQLite Memory/Goal Queue、有界重试与 JSONL 轨迹；设计路径越界防护、命令白名单、超时/输出限制和 macOS 沙箱执行。自建并验证 20 个隔离式代码修复任务，搭建 Direct、Read-only、Tool、Tool+Retry 四组多次 rollout 评测，统计成功率、Pass@k、Token/延迟、修复轮数与无关改动，并导出分项 reward、verifier 标注轨迹和偏好数据。
+> 从零实现轻量级 Python 代码 Agent，打通 OpenAI-compatible Provider、Agent Loop、5 类工作区工具、SQLite Memory/Goal Queue、有界重试与 JSONL 轨迹；设计路径越界防护、命令白名单、超时/输出限制和 macOS 沙箱执行。自建并验证 20 个隔离式代码修复任务，搭建 Direct、Read-only、Tool、Tool+Retry 四组多次 rollout 评测，统计成功率、Pass@k、Token/延迟、修复轮数与无关改动，并导出分项 reward、组内相对优势、verifier 标注轨迹和偏好数据。
 
 完成真实模型实验后，再把实际模型名、成功率变化、Token 成本和样本规模补入简历；不要把参考修复 20/20 写成 Agent 成功率。
 
