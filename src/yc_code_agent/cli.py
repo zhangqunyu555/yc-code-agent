@@ -76,6 +76,8 @@ def main(argv: list[str] | None = None) -> None:
     _add_provider_args(run)
     run.add_argument("--execution", choices=("sandbox", "local", "disabled"), default="sandbox")
     run.add_argument("--max-steps", type=int, default=12)
+    run.add_argument("--max-context-chars", type=int, default=100_000)
+    run.add_argument("--tools", help="comma-separated capability allowlist")
     run.add_argument("--trace")
     run.add_argument("--session")
     run.add_argument("--next-goal", action="store_true")
@@ -128,10 +130,12 @@ def main(argv: list[str] | None = None) -> None:
         history = store.load_session(session_id) if store and session_id else None
         trace = args.trace or f"traces/{datetime.now().strftime('%Y%m%d-%H%M%S')}.jsonl"
         try:
+            allowed_tools = {name.strip() for name in args.tools.split(",") if name.strip()} if args.tools else None
             agent = Agent(
                 _provider(args),
-                build_tools(args.workspace, execution_mode=args.execution),
+                build_tools(args.workspace, execution_mode=args.execution, allowed_tools=allowed_tools),
                 max_steps=args.max_steps,
+                max_context_chars=args.max_context_chars,
                 trace=JsonlTrace(trace),
             )
             result = agent.run(prompt, history=history)

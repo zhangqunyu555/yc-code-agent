@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-YC-Code Agent 是独立实现的最小代码 Agent 与 rollout/evaluation harness。它参考 OpenClaw 等框架共有的 Agent Loop、工具调用、workspace 和 session 思路，但不复制这些框架的源码。
+YC-Code Agent 是独立实现的轻量代码 Agent 与 rollout/evaluation harness。它参考 OpenClaw 等框架共有的 Agent Loop、工具调用、workspace、context 和 session 思路，但不复制这些框架的源码。
 
 与只展示聊天和工具调用的 demo 相比，本项目重点回答后训练更关心的问题：任务怎样隔离和复位、轨迹怎样记录、隐藏 verifier 怎样执行、reward 怎样拆解、同题怎样多次采样、偏好数据怎样产生。
 
@@ -12,7 +12,8 @@ YC-Code Agent 是独立实现的最小代码 Agent 与 rollout/evaluation harnes
 |---|---|---|
 | Model → tool → observation 循环 | `core.py` | OpenClaw agent loop、SWE-agent ACI |
 | Provider 与消息协议 | `providers.py` | OpenCode/Claude Code provider 与 context 管理 |
-| 工具和权限边界 | `tools.py` | OpenCode permissions、Claude Code hooks |
+| 文件发现、读写和运行级工具权限 | `tools.py` | OpenCode permissions、Claude Code hooks |
+| 长工具输出压缩 | `core.py` | OpenClaw/Claude Code context compaction |
 | 会话与任务持久化 | `state.py` | OpenClaw session、memory 与 queue |
 | 完整运行轨迹 | `trace.py` | SWE-agent trajectory |
 | 环境复位、隐藏测试与 patch 指标 | `benchmark.py` | SWE-bench、Terminal-Bench/Harbor |

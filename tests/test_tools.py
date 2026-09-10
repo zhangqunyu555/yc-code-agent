@@ -23,6 +23,14 @@ class WorkspaceTest(unittest.TestCase):
         self.workspace.edit("code.py", "beta", "gamma")
         self.assertEqual((self.root / "code.py").read_text(), "alpha\ngamma\n")
 
+    def test_list_write_and_capability_policy(self):
+        (self.root / "code.py").write_text("old", encoding="utf-8")
+        self.workspace.write("new.py", "created\n")
+        self.assertEqual(self.workspace.list_files(), "code.py\nnew.py")
+        registry = build_tools(self.root, execution_mode="disabled", allowed_tools={"list_files", "read"})
+        self.assertEqual({item["function"]["name"] for item in registry.specs()}, {"list_files", "read"})
+        self.assertFalse(json.loads(registry.execute("write", {"path": "x", "content": "x"}))["ok"])
+
     def test_escape_and_ambiguous_edit_are_rejected(self):
         with self.assertRaises(PermissionError):
             self.workspace.read("../outside")

@@ -4,9 +4,9 @@
 
 ## 已实现
 
-- 有界 Agent Loop：模型回复、工具调用、结果回填、停止条件和临时 Provider 错误重试。
+- 有界 Agent Loop：模型回复、工具调用、结果回填、停止条件、长工具输出压缩和临时 Provider 错误重试。
 - OpenAI-compatible Chat Completions Provider，以及完全离线的确定性 Demo Provider。
-- `read`、`search`、精确 `edit`、受限 `bash`、`test` 五种工具。
+- `list_files`、`read`、`search`、精确 `edit`、原子 `write`、受限 `bash`、`test` 七种工具，并支持每次运行的 capability allowlist。
 - 文件路径与符号链接越界防护；单次读取、命令时长和输出大小限制。
 - macOS `sandbox-exec` 命令隔离；无 shell 字符串执行，仅允许测试和只读 Git 命令。嵌套沙箱环境可显式使用 `local` 模式做可信测试。
 - JSONL 全轨迹：模型回复、工具参数/结果、usage、重试和延迟。
@@ -29,7 +29,7 @@ CLI / Benchmark
       ▼                  │
  Tool Registry ◄─────────┘
       │
-      ├── read / search / edit ──► workspace boundary
+      ├── list / read / search / edit / write ──► workspace boundary
       ├── bash / test ───────────► allowlist + sandbox + timeout
       └── JSONL trace ───────────► benchmark metrics / preferences
 ```
@@ -64,6 +64,16 @@ PYTHONPATH=src python3 -m yc_code_agent run \
   --workspace /path/to/authorized/repository
 ```
 
+可用 `--tools` 为一次运行设置最小工具权限，并用 `--max-context-chars` 控制长轨迹中的工具输出压缩：
+
+```bash
+PYTHONPATH=src python3 -m yc_code_agent run \
+  "检查代码并写一份说明" \
+  --workspace /path/to/authorized/repository \
+  --tools list_files,read,search,write \
+  --max-context-chars 50000
+```
+
 CLI 默认配置如下，无需重复传参：
 
 ```text
@@ -76,6 +86,8 @@ thinking = disabled
 需要思考模式时加 `--thinking enabled`。Provider 会保留并回传 DeepSeek 的 `reasoning_content`，确保思考模式下的多轮工具调用符合接口要求。
 
 如果 python.org 安装的 macOS Python 报 `CERTIFICATE_VERIFY_FAILED`，在 `.env` 中设置 `SSL_CERT_FILE=/etc/ssl/cert.pem`，继续使用系统 CA 验证；不要通过关闭 TLS 校验绕过错误。
+
+仓库保存了一次不含密钥的真实模型 smoke test：DeepSeek V4 Flash 在临时工作区依次调用 `list_files → read → write`，完成文件发现、代码读取和新文件创建。核验摘要见 [`outputs/framework-smoke-deepseek-v4-flash.json`](outputs/framework-smoke-deepseek-v4-flash.json)，原始 JSONL 轨迹见 [`outputs/framework-smoke-deepseek-v4-flash.jsonl`](outputs/framework-smoke-deepseek-v4-flash.jsonl)。这条记录只证明框架链路可用，不作为代码修复成功率。
 
 持久化会话和任务队列：
 
@@ -133,7 +145,7 @@ PYTHONPATH=src python3 -m yc_code_agent dataset benchmark-results/RESULT.json \
 
 ## 可核验的简历写法
 
-> 从零实现轻量级 Python 代码 Agent，打通 OpenAI-compatible Provider、Agent Loop、5 类工作区工具、SQLite Memory/Goal Queue、有界重试与 JSONL 轨迹；设计路径越界防护、命令白名单、超时/输出限制和 macOS 沙箱执行。自建并验证 20 个隔离式代码修复任务，搭建 Direct、Read-only、Tool、Tool+Retry 四组多次 rollout 评测，统计成功率、Pass@k、Token/延迟、修复轮数与无关改动，并导出分项 reward、组内相对优势、verifier 标注轨迹和偏好数据。
+> 从零实现轻量级 Python 代码 Agent，打通 OpenAI-compatible Provider、Agent Loop、7 类工作区工具、运行级工具权限、长工具输出压缩、SQLite Memory/Goal Queue、有界重试与 JSONL 轨迹；设计路径越界防护、原子写入、命令白名单、超时/输出限制和 macOS 沙箱执行。自建并验证 20 个隔离式代码修复任务，搭建 Direct、Read-only、Tool、Tool+Retry 四组多次 rollout 评测，统计成功率、Pass@k、Token/延迟、修复轮数与无关改动，并导出分项 reward、组内相对优势、verifier 标注轨迹和偏好数据。
 
 完成真实模型实验后，再把实际模型名、成功率变化、Token 成本和样本规模补入简历；不要把参考修复 20/20 写成 Agent 成功率。
 

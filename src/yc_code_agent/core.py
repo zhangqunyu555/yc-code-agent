@@ -46,15 +46,17 @@ class Agent:
         system_prompt: str = "You are a careful coding agent. Inspect before editing and run tests after changes.",
         max_steps: int = 12,
         provider_retries: int = 2,
+        max_context_chars: int = 100_000,
         trace: Trace | None = None,
     ) -> None:
-        if max_steps < 1 or provider_retries < 0:
-            raise ValueError("max_steps must be positive and provider_retries non-negative")
+        if max_steps < 1 or provider_retries < 0 or max_context_chars < 1000:
+            raise ValueError("max_steps must be positive, retries non-negative, and context at least 1000 chars")
         self.provider = provider
         self.tools = tools
         self.system_prompt = system_prompt
         self.max_steps = max_steps
         self.provider_retries = provider_retries
+        self.max_context_chars = max_context_chars
         self.trace = trace
 
     def _event(self, event: str, **data: Any) -> None:
@@ -72,6 +74,25 @@ class Agent:
                 time.sleep(0.25 * (2**attempt))
         raise AssertionError("unreachable")
 
+    def _compact_context(self, messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+        total = sum(len(str(message.get("content") or "")) for message in messages)
+        if total <= self.max_context_chars:
+            return messages, 0
+        compacted = [dict(message) for message in messages]
+        removed = 0
+        target = max(128, self.max_context_chars // 4)
+        for message in compacted:
+            content = message.get("content")
+            if message.get("role") != "tool" or not isinstance(content, str) or len(content) <= target:
+                continue
+            keep = max(32, target // 2)
+            replacement = f"{content[:keep]}\n...[tool output compacted]...\n{content[-keep:]}"
+            removed += len(content) - len(replacement)
+            message["content"] = replacement
+            if total - removed <= self.max_context_chars:
+                break
+        return compacted, removed
+
     def run(
         self,
         prompt: str,
@@ -85,6 +106,9 @@ class Agent:
         self._event("agent_start", prompt=prompt)
 
         for step in range(1, self.max_steps + 1):
+            messages, removed = self._compact_context(messages)
+            if removed:
+                self._event("context_compacted", step=step, removed_chars=removed)
             reply = self._complete(messages)
             if reply.get("role") != "assistant":
                 raise ValueError("provider reply must have role='assistant'")

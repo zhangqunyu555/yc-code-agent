@@ -40,6 +40,21 @@ class RetryProvider:
         return {"role": "assistant", "content": "recovered"}
 
 
+class ContextProvider:
+    last_usage = {}
+
+    def __init__(self):
+        self.calls = 0
+        self.observed = ""
+
+    def complete(self, messages, tools):
+        self.calls += 1
+        if self.calls == 1:
+            return {"role": "assistant", "content": "", "tool_calls": [{"id": "read", "type": "function", "function": {"name": "read", "arguments": json.dumps({"path": "large.txt"})}}]}
+        self.observed = messages[-1]["content"]
+        return {"role": "assistant", "content": "done"}
+
+
 class AgentTest(unittest.TestCase):
     def test_final_answer_and_usage(self):
         result = Agent(StaticProvider(), ToolRegistry()).run("go")
@@ -63,6 +78,14 @@ class AgentTest(unittest.TestCase):
         result = Agent(provider, ToolRegistry(), provider_retries=1).run("go")
         self.assertEqual(result.answer, "recovered")
         self.assertEqual(provider.calls, 2)
+
+    def test_large_tool_output_is_compacted_before_next_model_call(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "large.txt").write_text("x" * 5000, encoding="utf-8")
+            provider = ContextProvider()
+            Agent(provider, build_tools(directory, execution_mode="disabled", read_only=True), max_context_chars=1000).run("read")
+        self.assertIn("tool output compacted", provider.observed)
+        self.assertLess(len(provider.observed), 1000)
 
     def test_deepseek_payload_and_reasoning_round_trip(self):
         captured = {}

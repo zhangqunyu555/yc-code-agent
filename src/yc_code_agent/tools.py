@@ -43,6 +43,21 @@ class Workspace:
         selected = lines[start_line - 1 : end_line]
         return "\n".join(f"{number}: {line}" for number, line in enumerate(selected, start_line))
 
+    def list_files(self, path: str = ".", limit: int = 200) -> str:
+        base = self.path(path, must_exist=True)
+        if not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        candidates = [base] if base.is_file() else base.rglob("*")
+        files = []
+        for candidate in candidates:
+            if not candidate.is_file() or not candidate.resolve().is_relative_to(self.root):
+                continue
+            relative = candidate.relative_to(self.root)
+            if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
+                continue
+            files.append(str(relative))
+        return "\n".join(sorted(files)[:limit])
+
     def search(self, query: str, path: str = ".", limit: int = 100) -> str:
         if not query:
             raise ValueError("query must not be empty")
@@ -81,6 +96,19 @@ class Workspace:
             temporary = Path(handle.name)
         os.replace(temporary, target)
         return f"updated {path}"
+
+    def write(self, path: str, content: str) -> str:
+        if not isinstance(content, str) or len(content.encode("utf-8")) > 1_000_000:
+            raise ValueError("content must be UTF-8 text no larger than 1 MB")
+        target = self.path(path)
+        if not target.parent.is_dir():
+            raise ValueError(f"parent directory does not exist: {target.parent.relative_to(self.root)}")
+        action = "updated" if target.exists() else "created"
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=target.parent, delete=False) as handle:
+            handle.write(content)
+            temporary = Path(handle.name)
+        os.replace(temporary, target)
+        return f"{action} {path}"
 
 
 class CommandRunner:
@@ -180,17 +208,31 @@ class ToolRegistry:
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
 
-def build_tools(workspace: str | Path, *, execution_mode: str = "sandbox", read_only: bool = False) -> ToolRegistry:
+def build_tools(
+    workspace: str | Path,
+    *,
+    execution_mode: str = "sandbox",
+    read_only: bool = False,
+    allowed_tools: set[str] | None = None,
+) -> ToolRegistry:
     ws = Workspace(workspace)
     runner = CommandRunner(ws, execution_mode)
     tools = [
+        Tool("list_files", "List non-hidden files below a workspace path.", {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}, "additionalProperties": False}, ws.list_files),
         Tool("read", "Read a UTF-8 text file with line numbers.", {"type": "object", "properties": {"path": {"type": "string"}, "start_line": {"type": "integer"}, "end_line": {"type": "integer"}}, "required": ["path"], "additionalProperties": False}, ws.read),
         Tool("search", "Search for literal text in workspace files.", {"type": "object", "properties": {"query": {"type": "string"}, "path": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"], "additionalProperties": False}, ws.search),
     ]
     if not read_only:
         tools.extend([
             Tool("edit", "Replace one exact text occurrence in a file.", {"type": "object", "properties": {"path": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}}, "required": ["path", "old", "new"], "additionalProperties": False}, ws.edit),
+            Tool("write", "Create or replace one UTF-8 text file inside the workspace.", {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"], "additionalProperties": False}, ws.write),
             Tool("bash", "Run an allowlisted test or git inspection command without a shell.", {"type": "object", "properties": {"command": {"type": "array", "items": {"type": "string"}}, "timeout": {"type": "integer"}}, "required": ["command"], "additionalProperties": False}, runner.run),
             Tool("test", "Run an allowlisted test command.", {"type": "object", "properties": {"command": {"type": "array", "items": {"type": "string"}}, "timeout": {"type": "integer"}}, "required": ["command"], "additionalProperties": False}, runner.run),
         ])
+    if allowed_tools is not None:
+        available = {tool.name for tool in tools}
+        unknown = allowed_tools - available
+        if unknown:
+            raise ValueError(f"unavailable tools: {', '.join(sorted(unknown))}")
+        tools = [tool for tool in tools if tool.name in allowed_tools]
     return ToolRegistry(tools)

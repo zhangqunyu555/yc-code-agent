@@ -1,0 +1,16 @@
+{
+  "model": "deepseek-v4-flash",
+  "task": "discover files, inspect app.py, and create NOTES.md",
+  "success": true,
+  "tool_sequence": [
+    "list_files",
+    "read",
+    "write"
+  ],
+  "model_calls": 3,
+  "tool_calls": 3,
+  "input_tokens": 2053,
+  "output_tokens": 719,
+  "elapsed_ms": 5146,
+  "trace": "outputs/framework-smoke-deepseek-v4-flash.jsonl"
+}
