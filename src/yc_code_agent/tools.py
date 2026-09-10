@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 
 MAX_OUTPUT = 20_000
+MAX_READ_LINES = 400
 
 
 class Workspace:
@@ -40,10 +41,14 @@ class Workspace:
         lines = target.read_text(encoding="utf-8").splitlines()
         if start_line < 1 or (end_line is not None and end_line < start_line):
             raise ValueError("invalid line range")
-        selected = lines[start_line - 1 : end_line]
-        return "\n".join(f"{number}: {line}" for number, line in enumerate(selected, start_line))
+        stop = min(end_line, start_line + MAX_READ_LINES - 1) if end_line is not None else start_line + MAX_READ_LINES - 1
+        selected = lines[start_line - 1 : stop]
+        result = "\n".join(f"{number}: {line}" for number, line in enumerate(selected, start_line))
+        if stop < len(lines) and (end_line is None or stop < end_line):
+            result += f"\n... [truncated at {MAX_READ_LINES} lines; continue with start_line={stop + 1}]"
+        return result
 
-    def list_files(self, path: str = ".", limit: int = 200) -> str:
+    def list_files(self, path: str = ".", limit: int = 100) -> str:
         base = self.path(path, must_exist=True)
         if not 1 <= limit <= 1000:
             raise ValueError("limit must be between 1 and 1000")

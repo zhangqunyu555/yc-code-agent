@@ -6,7 +6,7 @@
 
 - 有界 Agent Loop：模型回复、工具调用、结果回填、停止条件、长工具输出压缩和临时 Provider 错误重试。
 - OpenAI-compatible Chat Completions Provider，以及完全离线的确定性 Demo Provider。
-- `list_files`、`read`、`search`、精确 `edit`、原子 `write`、受限 `bash`、`test` 七种工具，并支持每次运行的 capability allowlist。
+- `list_files`、`read`、`search`、精确 `edit`、原子 `write`、受限 `bash`、`test` 七种工具，并支持每次运行的 capability allowlist；目录列表和单次读取有默认预算，长文件引导模型按行续读。
 - 文件路径与符号链接越界防护；单次读取、命令时长和输出大小限制。
 - macOS `sandbox-exec` 命令隔离；无 shell 字符串执行，仅允许测试和只读 Git 命令。嵌套沙箱环境可显式使用 `local` 模式做可信测试。
 - JSONL 全轨迹：模型回复、工具参数/结果、usage、重试和延迟。
@@ -125,6 +125,8 @@ PYTHONPATH=src python3 -m yc_code_agent benchmark --limit 20 --samples 3 --tempe
 同一次实验应固定模型、任务版本、执行模式和 Agent 步数预算。当前仓库只保存参考修复验证结果，不冒充真实模型对比结果。
 
 仓库另保存一次3题诊断实验 [`outputs/agent-ablation-smoke.json`](outputs/agent-ablation-smoke.json)：四组均为3/3，Tool Agent未在简单单文件题上提高准确率，却消耗了约46倍于Direct的Token。该结果用于暴露并修复工具权限、无关文件写入和步数上限统计问题；由于只有3题且每题1次采样，不作为正式Benchmark结论。
+
+第一次真实多文件仓库诊断记录在 [`outputs/real-repo-smoke-sortedcontainers.json`](outputs/real-repo-smoke-sortedcontainers.json)：在固定版本的Apache-2.0开源仓库`python-sortedcontainers`中注入一个明确标注的合成回归，DeepSeek V4 Flash通过文件发现、符号搜索、局部读取、编辑和测试，将`SortedSet`内部两个数据结构恢复同步，外部Verifier由FAIL变为PASS，最终生产文件与上游正确版本一致。该单题证明仓库级链路可运行，也暴露出102,229输入Token和无效Shell尝试的效率问题；它不是上游真实Issue或SWE-bench成绩。
 
 生成供后续人工审查的偏好对索引：
 

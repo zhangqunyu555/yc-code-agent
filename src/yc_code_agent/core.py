@@ -47,7 +47,11 @@ class Agent:
         provider: Provider,
         tools: Any,
         *,
-        system_prompt: str = "You are a careful coding agent. Inspect before editing and run tests after changes.",
+        system_prompt: str = (
+            "You are a careful coding agent. Use search and narrow line ranges before reading large files. "
+            "Run only commands allowed by the tool schema, modify production files only unless asked, "
+            "run the relevant test after editing, and stop when it passes."
+        ),
         max_steps: int = 12,
         provider_retries: int = 2,
         max_context_chars: int = 100_000,

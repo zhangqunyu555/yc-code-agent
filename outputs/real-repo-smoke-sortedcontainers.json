@@ -1,0 +1,52 @@
+{
+  "kind": "real_repository_synthetic_regression",
+  "source": {
+    "repository": "https://github.com/grantjenks/python-sortedcontainers",
+    "commit": "3ac358631f58c1347f1d6d2d92784117db0f38ed",
+    "license": "Apache-2.0"
+  },
+  "task": {
+    "description": "SortedSet.add updates membership and length but leaves iteration and indexing stale.",
+    "mutation": "Removed self._list.add(value) from SortedSet.add.",
+    "verifier": "python3 -m unittest tests.test_yc_agent_issue -v",
+    "initial_verifier": "FAIL",
+    "final_verifier": "PASS",
+    "synthetic_bug": true
+  },
+  "result": {
+    "success": true,
+    "production_file": "src/sortedcontainers/sortedset.py",
+    "final_matches_upstream": true,
+    "model": "deepseek-v4-flash",
+    "model_calls": 11,
+    "tool_calls": 12,
+    "input_tokens": 102229,
+    "output_tokens": 993,
+    "elapsed_ms": 11691,
+    "tool_sequence": [
+      "list_files",
+      "list_files",
+      "bash",
+      "search",
+      "list_files",
+      "read",
+      "bash",
+      "list_files",
+      "read",
+      "read",
+      "edit",
+      "test"
+    ]
+  },
+  "audit": {
+    "test_mutation_tools": 0,
+    "trace_sha256": "29a5c21c91d1a10b80e803b74127adc429a178582224d8cf8fdad325420c92ba",
+    "raw_trace_location": "local temporary artifact; not committed because it repeats large upstream source excerpts"
+  },
+  "finding": "The agent localized and repaired a cross-file repository regression, but used excessive context and attempted two denied shell commands.",
+  "limitations": [
+    "One synthetic regression in a real repository.",
+    "No matched Direct baseline.",
+    "Not a SWE-bench score."
+  ]
+}

@@ -23,6 +23,13 @@ class WorkspaceTest(unittest.TestCase):
         self.workspace.edit("code.py", "beta", "gamma")
         self.assertEqual((self.root / "code.py").read_text(), "alpha\ngamma\n")
 
+    def test_read_caps_large_files_and_points_to_next_range(self):
+        (self.root / "large.py").write_text("\n".join(str(index) for index in range(500)), encoding="utf-8")
+        result = self.workspace.read("large.py")
+        self.assertIn("truncated at 400 lines", result)
+        self.assertIn("start_line=401", result)
+        self.assertNotIn("500: 499", result)
+
     def test_list_write_and_capability_policy(self):
         (self.root / "code.py").write_text("old", encoding="utf-8")
         self.workspace.write("new.py", "created\n")
