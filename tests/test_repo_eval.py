@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from yc_code_agent.repo_eval import RepoTask, run_repo_task
+from yc_code_agent.repo_eval import RepoTask, run_repo_task, summarize_repo_results
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +53,16 @@ class RepoEvalTest(unittest.TestCase):
         self.assertIn("+    return min(max(value, low), high)", result["patch"])
         self.assertFalse(result["irrelevant_changes"])
         self.assertEqual((source / "calculator.py").read_text(encoding="utf-8"), original)
+
+    def test_repository_summary_separates_retrieval_ablation(self):
+        base = {"task_id": "t1", "success": True, "model_calls": 2, "tool_calls": 3,
+                "input_tokens": 100, "output_tokens": 20, "elapsed_ms": 10, "irrelevant_changes": []}
+        summary = summarize_repo_results([
+            {**base, "profile": "tool"},
+            {**base, "profile": "tool_retrieval", "tool_calls": 2},
+        ])
+        self.assertEqual(summary["tool"]["avg_tool_calls"], 3)
+        self.assertEqual(summary["tool_retrieval"]["avg_tool_calls"], 2)
 
 
 if __name__ == "__main__":

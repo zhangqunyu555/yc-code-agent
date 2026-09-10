@@ -18,6 +18,7 @@ from .trace import JsonlTrace
 
 
 IGNORED_PARTS = {".git", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".venv", "__pycache__"}
+REPO_PROFILES = ("tool", "tool_retrieval")
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +130,7 @@ def run_repo_task(
     max_steps: int = 12,
     max_context_chars: int = 100_000,
     trace_path: str | Path | None = None,
+    retrieval: bool = False,
 ) -> dict[str, Any]:
     """Run one repair in a disposable repository copy and return its evidence."""
     source_repo = Path(source_repo).expanduser().resolve()
@@ -151,19 +153,23 @@ def run_repo_task(
         before = _snapshot(root)
         provider = provider_factory()
         trace = JsonlTrace(trace_path) if trace_path else None
+        allowed_tools = {"list_files", "read", "search", "edit", "test"}
+        if retrieval:
+            allowed_tools.add("retrieve")
         tools = build_tools(
             root,
             execution_mode=execution_mode,
-            allowed_tools={"list_files", "read", "search", "edit", "test"},
+            allowed_tools=allowed_tools,
             writable_paths=set(task.allowed_paths),
         )
         agent = Agent(provider, tools, max_steps=max_steps, max_context_chars=max_context_chars, trace=trace)
         public_hint = ""
         if task.public_test_command:
             public_hint = f"\n可运行公开测试：{json.dumps(task.public_test_command, ensure_ascii=False)}"
+        retrieval_hint = "优先用 retrieve 检索与问题相关的代码块。" if retrieval else ""
         prompt = (
             f"任务 {task.id}：{task.prompt}{public_hint}\n"
-            f"只允许修改：{', '.join(task.allowed_paths)}。只能通过 test 工具运行给定测试；修复、测试后立即停止。"
+            f"只允许修改：{', '.join(task.allowed_paths)}。{retrieval_hint}只能通过 test 工具运行给定测试；修复、测试后立即停止。"
         )
         error = ""
         try:
@@ -180,6 +186,7 @@ def run_repo_task(
             "source": task.source or {},
             "checked_commit": checked_commit,
             "model": getattr(provider, "model", provider.__class__.__name__),
+            "retrieval": retrieval,
             "success": success and not irrelevant,
             "initial_verifier": initial_output[-2000:],
             "final_verifier": verifier_output[-2000:],
@@ -195,3 +202,23 @@ def run_repo_task(
             "messages": result.messages,
             "error": error,
         }
+
+
+def summarize_repo_results(results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    summary: dict[str, dict[str, Any]] = {}
+    for profile in REPO_PROFILES:
+        rows = [row for row in results if row.get("profile") == profile]
+        if not rows:
+            continue
+        summary[profile] = {
+            "rollouts": len(rows),
+            "tasks": len({row["task_id"] for row in rows}),
+            "success_rate": sum(bool(row["success"]) for row in rows) / len(rows),
+            "avg_model_calls": sum(row["model_calls"] for row in rows) / len(rows),
+            "avg_tool_calls": sum(row["tool_calls"] for row in rows) / len(rows),
+            "avg_input_tokens": sum(row["input_tokens"] for row in rows) / len(rows),
+            "avg_output_tokens": sum(row["output_tokens"] for row in rows) / len(rows),
+            "avg_elapsed_ms": sum(row["elapsed_ms"] for row in rows) / len(rows),
+            "irrelevant_change_rate": sum(bool(row["irrelevant_changes"]) for row in rows) / len(rows),
+        }
+    return summary

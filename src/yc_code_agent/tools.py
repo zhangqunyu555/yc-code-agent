@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import shutil
 import subprocess
 import tempfile
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -14,6 +17,7 @@ from typing import Any, Callable
 
 MAX_OUTPUT = 20_000
 MAX_READ_LINES = 400
+TOKEN_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_]*|[\u4e00-\u9fff]")
 
 
 class Workspace:
@@ -22,6 +26,7 @@ class Workspace:
         if not self.root.is_dir():
             raise ValueError(f"workspace is not a directory: {self.root}")
         self.writable_paths = None
+        self._retrieval_cache: dict[tuple[str, int], list[tuple[str, int, list[str], list[str]]]] = {}
         if writable_paths is not None:
             self.writable_paths = set()
             for path in writable_paths:
@@ -98,6 +103,75 @@ class Workspace:
                 continue
         return "\n".join(matches)
 
+    @staticmethod
+    def _tokens(text: str) -> list[str]:
+        tokens: list[str] = []
+        for token in TOKEN_PATTERN.findall(text):
+            lowered = token.lower()
+            tokens.append(lowered)
+            if "_" in lowered:
+                tokens.extend(part for part in lowered.split("_") if part)
+            else:
+                tokens.extend(part.lower() for part in re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z]|$)", token) if part.lower() != lowered)
+        return tokens
+
+    def retrieve(self, query: str, path: str = ".", top_k: int = 5, chunk_lines: int = 80) -> str:
+        """Return BM25-ranked code chunks without an embedding service."""
+        if not query.strip():
+            raise ValueError("query must not be empty")
+        if not 1 <= top_k <= 10 or not 20 <= chunk_lines <= 200:
+            raise ValueError("top_k must be 1..10 and chunk_lines must be 20..200")
+        base = self.path(path, must_exist=True)
+        cache_key = (str(base), chunk_lines)
+        chunks = self._retrieval_cache.get(cache_key)
+        if chunks is None:
+            candidates = [base] if base.is_file() else base.rglob("*")
+            chunks = []
+            stride = max(1, chunk_lines - 20)
+            for file in candidates:
+                if not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000:
+                    continue
+                relative = file.relative_to(self.root)
+                if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
+                    continue
+                try:
+                    lines = file.read_text(encoding="utf-8").splitlines()
+                except UnicodeDecodeError:
+                    continue
+                filename_tokens = self._tokens(str(relative))
+                for start in range(0, max(len(lines), 1), stride):
+                    selected = lines[start : start + chunk_lines]
+                    if not selected:
+                        break
+                    tokens = filename_tokens * 3 + self._tokens("\n".join(selected))
+                    chunks.append((str(relative), start + 1, selected, tokens))
+                    if start + chunk_lines >= len(lines):
+                        break
+            self._retrieval_cache[cache_key] = chunks
+        query_tokens = self._tokens(query)
+        if not chunks or not query_tokens:
+            return ""
+        document_frequency = {token: sum(token in chunk[3] for chunk in chunks) for token in set(query_tokens)}
+        average_length = sum(len(chunk[3]) for chunk in chunks) / len(chunks)
+        ranked: list[tuple[float, str, int, list[str]]] = []
+        for filename, start, lines, tokens in chunks:
+            score = 0.0
+            length = len(tokens)
+            frequencies = Counter(tokens)
+            for token in query_tokens:
+                frequency = frequencies[token]
+                if not frequency:
+                    continue
+                inverse_frequency = math.log(1 + (len(chunks) - document_frequency[token] + 0.5) / (document_frequency[token] + 0.5))
+                score += inverse_frequency * frequency * 2.2 / (frequency + 1.2 * (0.25 + 0.75 * length / average_length))
+            if score:
+                ranked.append((score, filename, start, lines))
+        sections = []
+        for score, filename, start, lines in sorted(ranked, reverse=True)[:top_k]:
+            numbered = "\n".join(f"{line_no}: {line}" for line_no, line in enumerate(lines, start))
+            sections.append(f"### {filename}:{start}-{start + len(lines) - 1} score={score:.3f}\n{numbered}")
+        return "\n\n".join(sections)[:MAX_OUTPUT]
+
     def _ensure_writable(self, path: str) -> None:
         resolved = (self.root / path).resolve()
         relative = str(resolved.relative_to(self.root)) if resolved.is_relative_to(self.root) else path
@@ -118,6 +192,7 @@ class Workspace:
             handle.write(updated)
             temporary = Path(handle.name)
         os.replace(temporary, target)
+        self._retrieval_cache.clear()
         return f"updated {path}"
 
     def write(self, path: str, content: str) -> str:
@@ -132,6 +207,7 @@ class Workspace:
             handle.write(content)
             temporary = Path(handle.name)
         os.replace(temporary, target)
+        self._retrieval_cache.clear()
         return f"{action} {path}"
 
 
@@ -246,6 +322,7 @@ def build_tools(
         Tool("list_files", "List non-hidden files below a workspace path.", {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}, "additionalProperties": False}, ws.list_files),
         Tool("read", "Read a UTF-8 text file with line numbers.", {"type": "object", "properties": {"path": {"type": "string"}, "start_line": {"type": "integer"}, "end_line": {"type": "integer"}}, "required": ["path"], "additionalProperties": False}, ws.read),
         Tool("search", "Search for literal text in workspace files.", {"type": "object", "properties": {"query": {"type": "string"}, "path": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"], "additionalProperties": False}, ws.search),
+        Tool("retrieve", "Retrieve the most relevant code chunks for a natural-language or symbol query using local lexical ranking.", {"type": "object", "properties": {"query": {"type": "string"}, "path": {"type": "string"}, "top_k": {"type": "integer"}, "chunk_lines": {"type": "integer"}}, "required": ["query"], "additionalProperties": False}, ws.retrieve),
     ]
     if not read_only:
         tools.extend([

@@ -12,7 +12,7 @@ from pathlib import Path
 from .benchmark import PROFILES, build_preferences, build_rollout_dataset, run_task, summarize, validate_catalog
 from .core import Agent
 from .providers import DemoProvider, OpenAICompatibleProvider
-from .repo_eval import RepoTask, run_repo_task
+from .repo_eval import REPO_PROFILES, RepoTask, run_repo_task, summarize_repo_results
 from .state import StateStore
 from .task_catalog import TASKS
 from .tools import build_tools
@@ -104,7 +104,19 @@ def main(argv: list[str] | None = None) -> None:
     repo_eval.add_argument("--execution", choices=("sandbox", "local"), default="sandbox")
     repo_eval.add_argument("--max-steps", type=int, default=12)
     repo_eval.add_argument("--max-context-chars", type=int, default=100_000)
+    repo_eval.add_argument("--retrieval", action="store_true", help="enable local lexical code retrieval")
     repo_eval.add_argument("--output")
+
+    repo_benchmark = subparsers.add_parser("repo-benchmark", help="compare tool profiles on isolated repository tasks")
+    repo_benchmark.add_argument("tasks", nargs="+", help="JSON task manifests sharing one source repository")
+    repo_benchmark.add_argument("--source-repo", required=True, help="authorized local repository at the task base revision")
+    _add_provider_args(repo_benchmark)
+    repo_benchmark.add_argument("--profiles", default=",".join(REPO_PROFILES))
+    repo_benchmark.add_argument("--samples", type=int, default=1)
+    repo_benchmark.add_argument("--execution", choices=("sandbox", "local"), default="sandbox")
+    repo_benchmark.add_argument("--max-steps", type=int, default=12)
+    repo_benchmark.add_argument("--max-context-chars", type=int, default=100_000)
+    repo_benchmark.add_argument("--output")
 
     preferences = subparsers.add_parser("preferences", help="derive trace preference pairs from benchmark results")
     preferences.add_argument("input")
@@ -184,6 +196,7 @@ def main(argv: list[str] | None = None) -> None:
             max_steps=args.max_steps,
             max_context_chars=args.max_context_chars,
             trace_path=trace,
+            retrieval=args.retrieval,
         )
         _write_json(output, result)
         print(json.dumps({
@@ -195,6 +208,49 @@ def main(argv: list[str] | None = None) -> None:
             "trace": trace,
         }, ensure_ascii=False, indent=2))
         raise SystemExit(0 if result["success"] else 1)
+
+    if args.command == "repo-benchmark":
+        profiles = [profile.strip() for profile in args.profiles.split(",") if profile.strip()]
+        unknown = set(profiles) - set(REPO_PROFILES)
+        if unknown:
+            raise SystemExit(f"unknown repo profiles: {', '.join(sorted(unknown))}")
+        if args.samples < 1:
+            raise SystemExit("--samples must be positive")
+        tasks = [RepoTask.load(path) for path in args.tasks]
+        output = args.output or f"repo-eval-results/benchmark-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+        trace_dir = Path(output).with_suffix("")
+        rows = []
+        for task in tasks:
+            for profile in profiles:
+                for sample_id in range(args.samples):
+                    trace = trace_dir / f"{task.id}-{profile}-sample-{sample_id}.jsonl"
+                    row = run_repo_task(
+                        task,
+                        args.source_repo,
+                        lambda: _provider(args),
+                        execution_mode=args.execution,
+                        max_steps=args.max_steps,
+                        max_context_chars=args.max_context_chars,
+                        trace_path=trace,
+                        retrieval=profile == "tool_retrieval",
+                    )
+                    row.pop("messages", None)
+                    row.update({"profile": profile, "sample_id": sample_id})
+                    rows.append(row)
+                    print(f"{task.id} {profile} sample={sample_id}: {'PASS' if row['success'] else 'FAIL'}")
+        settings = _provider_settings(args)
+        payload = {
+            "created_at": datetime.now().astimezone().isoformat(),
+            "model": settings["model"],
+            "profiles": profiles,
+            "samples": args.samples,
+            "task_ids": [task.id for task in tasks],
+            "summary": summarize_repo_results(rows),
+            "results": rows,
+        }
+        _write_json(output, payload)
+        print(json.dumps({"output": output, "summary": payload["summary"]}, ensure_ascii=False, indent=2))
+        return
 
     if args.command == "preferences":
         payload = json.loads(Path(args.input).read_text(encoding="utf-8"))

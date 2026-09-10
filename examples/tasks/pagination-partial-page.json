@@ -1,0 +1,10 @@
+{
+  "id": "pagination-partial-page",
+  "prompt": "Pagination 在总数不能被 page size 整除时丢失最后一个 partial page，例如 21 条、每页 10 条应得到 3 页。",
+  "source": {"kind": "self-authored-fixture", "license": "MIT"},
+  "allowed_paths": ["pagination.py"],
+  "setup_edits": [{"path": "pagination.py", "old": "return (total + page_size - 1) // page_size", "new": "return total // page_size"}],
+  "public_test_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+  "verifier_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+  "verifier_files": [{"path": "tests/test_hidden.py", "content": "import unittest\nfrom pagination import page_count\n\nclass HiddenTest(unittest.TestCase):\n    def test_partial_final_page(self):\n        self.assertEqual(page_count(21, 10), 3)\n"}]
+}

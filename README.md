@@ -6,7 +6,7 @@
 
 - 有界 Agent Loop：模型回复、工具调用、结果回填、停止条件、长工具输出压缩和临时 Provider 错误重试。
 - OpenAI-compatible Chat Completions Provider，以及完全离线的确定性 Demo Provider。
-- `list_files`、`read`、`search`、精确 `edit`、原子 `write`、受限 `bash`、`test` 七种工具，并支持每次运行的 capability allowlist；目录列表和单次读取有默认预算，长文件引导模型按行续读。
+- `list_files`、`read`、`search`、`retrieve`、精确 `edit`、原子 `write`、受限 `bash`、`test` 八种工具，并支持每次运行的 capability allowlist；`retrieve` 使用本地 BM25-style 词法排序返回相关代码块，不依赖向量模型。
 - 文件路径与符号链接越界防护；单次读取、命令时长和输出大小限制。
 - macOS `sandbox-exec` 命令隔离；无 shell 字符串执行，仅允许测试和只读 Git 命令。嵌套沙箱环境可显式使用 `local` 模式做可信测试。
 - JSONL 全轨迹：模型回复、工具参数/结果、usage、重试和延迟。
@@ -140,6 +140,21 @@ PYTHONPATH=src python3 -m yc_code_agent repo-eval \
 
 结果保存在 `repo-eval-results/`，包含初始/最终 verifier、实际改动文件、unified diff、模型与工具调用、Token、延迟和轨迹路径。源仓库不会被修改。普通终端对不可信仓库使用 `sandbox`；Codex 嵌套沙箱内仅对自建可信任务使用 `local`。
 
+加 `--retrieval` 可启用本地代码块检索。它完成 query → 代码块排序 → context 回填，但没有 Embedding 或向量数据库，因此准确名称是 lexical code retrieval，而不是 semantic vector RAG。
+
+`repo-benchmark` 会在相同模型、任务和步数预算下批量比较普通 Tool Agent 与 Tool+Retrieval：
+
+```bash
+PYTHONPATH=src python3 -m yc_code_agent repo-benchmark \
+  examples/tasks/*.json \
+  --source-repo examples/sample_repo \
+  --profiles tool,tool_retrieval \
+  --samples 1 \
+  --execution local
+```
+
+一次 DeepSeek V4 Flash 的4题诊断结果见 [`outputs/retrieval-ablation-deepseek-v4-flash.json`](outputs/retrieval-ablation-deepseek-v4-flash.json)：两组均为4/4；检索组平均模型调用、工具调用、输入Token、输出Token和延迟分别减少20.0%、20.69%、15.0%、14.1%和23.56%。该结果只有4个自建小任务且每组1次采样，只能作为链路与效率诊断，不能证明准确率提升，也不是SWE-bench结果。
+
 ## 四组评测
 
 先用 1 题确认 API 和模型格式，再运行完整 20 题。`--samples` 控制每个任务和配置的独立 rollout 次数：
@@ -164,7 +179,7 @@ PYTHONPATH=src python3 -m yc_code_agent benchmark --limit 20 --samples 3 --tempe
 
 仓库另保存一次3题诊断实验 [`outputs/agent-ablation-smoke.json`](outputs/agent-ablation-smoke.json)：四组均为3/3，Tool Agent未在简单单文件题上提高准确率，却消耗了约46倍于Direct的Token。该结果用于暴露并修复工具权限、无关文件写入和步数上限统计问题；由于只有3题且每题1次采样，不作为正式Benchmark结论。
 
-第一次真实多文件仓库诊断记录在 [`outputs/real-repo-smoke-sortedcontainers.json`](outputs/real-repo-smoke-sortedcontainers.json)：在固定版本的Apache-2.0开源仓库`python-sortedcontainers`中注入一个明确标注的合成回归，DeepSeek V4 Flash通过文件发现、符号搜索、局部读取、编辑和测试，将`SortedSet`内部两个数据结构恢复同步，外部Verifier由FAIL变为PASS，最终生产文件与上游正确版本一致。该单题证明仓库级链路可运行，也暴露出102,229输入Token和无效Shell尝试的效率问题；它不是上游真实Issue或SWE-bench成绩。
+第一次公开仓库合成回归诊断记录在 [`outputs/real-repo-smoke-sortedcontainers.json`](outputs/real-repo-smoke-sortedcontainers.json)：在固定版本的Apache-2.0开源仓库`python-sortedcontainers`中人工移除一行正确代码，DeepSeek V4 Flash通过文件发现、符号搜索、局部读取、编辑和测试，将`SortedSet`内部两个数据结构恢复同步，外部Verifier由FAIL变为PASS，最终生产文件与上游正确版本一致。该单题证明仓库级链路可运行，也暴露出102,229输入Token和无效Shell尝试的效率问题；它不是上游真实Issue或SWE-bench成绩。
 
 同一回归的匹配对照见 [`outputs/real-repo-direct-vs-tool.json`](outputs/real-repo-direct-vs-tool.json)。`Direct + Oracle Context`直接获得正确的40行代码窗口和Verifier，一次调用使用542输入Token；Tool Agent只获得Issue并自行探索完整仓库，使用57,762输入Token。两者均通过。该结果说明已有准确定位时Direct显著更便宜，不能证明Agent提高准确率；Agent价值需要在修改位置未知、必须探索与验证的多任务集合上评估。
 
@@ -189,7 +204,7 @@ PYTHONPATH=src python3 -m yc_code_agent dataset benchmark-results/RESULT.json \
 
 ## 可核验的简历写法
 
-> 从零实现轻量级 Python 代码 Agent，打通 OpenAI-compatible Provider、Agent Loop、7 类工作区工具、运行级工具权限、长工具输出压缩、SQLite Memory/Goal Queue、有界重试与 JSONL 轨迹；设计路径越界防护、原子写入、命令白名单、超时/输出限制和 macOS 沙箱执行。自建并验证 20 个隔离式代码修复任务，搭建 Direct、Read-only、Tool、Tool+Retry 四组多次 rollout 评测，统计成功率、Pass@k、Token/延迟、修复轮数与无关改动，并导出分项 reward、组内相对优势、verifier 标注轨迹和偏好数据。
+项目能力与可直接用于简历的准确表述见 [docs/resume-agent-description.md](docs/resume-agent-description.md)。
 
 完成真实模型实验后，再把实际模型名、成功率变化、Token 成本和样本规模补入简历；不要把参考修复 20/20 写成 Agent 成功率。
 

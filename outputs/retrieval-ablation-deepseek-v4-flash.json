@@ -1,0 +1,235 @@
+{
+  "kind": "small_self_authored_repository_retrieval_ablation",
+  "created_at": "2026-09-10T22:33:01.203194+08:00",
+  "model": "deepseek-v4-flash",
+  "setup": {
+    "tasks": 4,
+    "samples_per_task": 1,
+    "profiles": [
+      "tool",
+      "tool_retrieval"
+    ],
+    "repository": "self-authored multi-file fixture",
+    "verifier": "protected tests injected only before and after the agent run"
+  },
+  "summary": {
+    "tool": {
+      "rollouts": 4,
+      "tasks": 4,
+      "success_rate": 1.0,
+      "avg_model_calls": 6.25,
+      "avg_tool_calls": 7.25,
+      "avg_input_tokens": 7970.75,
+      "avg_output_tokens": 514.25,
+      "avg_elapsed_ms": 6358.75,
+      "irrelevant_change_rate": 0.0
+    },
+    "tool_retrieval": {
+      "rollouts": 4,
+      "tasks": 4,
+      "success_rate": 1.0,
+      "avg_model_calls": 5.0,
+      "avg_tool_calls": 5.75,
+      "avg_input_tokens": 6775.25,
+      "avg_output_tokens": 441.75,
+      "avg_elapsed_ms": 4860.5,
+      "irrelevant_change_rate": 0.0
+    }
+  },
+  "relative_reduction_percent": {
+    "avg_model_calls": 20.0,
+    "avg_tool_calls": 20.69,
+    "avg_input_tokens": 15.0,
+    "avg_output_tokens": 14.1,
+    "avg_elapsed_ms": 23.56
+  },
+  "results": [
+    {
+      "task_id": "cache-expiration-boundary",
+      "profile": "tool",
+      "success": true,
+      "model_calls": 7,
+      "tool_calls": 8,
+      "input_tokens": 9349,
+      "output_tokens": 531,
+      "elapsed_ms": 7956,
+      "changed_files": [
+        "cache.py"
+      ],
+      "tool_sequence": [
+        "list_files",
+        "read",
+        "search",
+        "read",
+        "search",
+        "read",
+        "edit",
+        "test"
+      ],
+      "trace_sha256": "3301ed7a31e98eb5c2bdccd5dea09b1a9f2f902b0046055bb41b1f5d36127864"
+    },
+    {
+      "task_id": "cache-expiration-boundary",
+      "profile": "tool_retrieval",
+      "success": true,
+      "model_calls": 5,
+      "tool_calls": 6,
+      "input_tokens": 7184,
+      "output_tokens": 402,
+      "elapsed_ms": 4621,
+      "changed_files": [
+        "cache.py"
+      ],
+      "tool_sequence": [
+        "list_files",
+        "retrieve",
+        "read",
+        "read",
+        "edit",
+        "test"
+      ],
+      "trace_sha256": "9ff8041ff32b7c50c19e2a580ae8d5d06e40bdbb9ae9f7f3d0ff4a224609dadd"
+    },
+    {
+      "task_id": "clamp-upper-bound",
+      "profile": "tool",
+      "success": true,
+      "model_calls": 5,
+      "tool_calls": 6,
+      "input_tokens": 5300,
+      "output_tokens": 415,
+      "elapsed_ms": 4645,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "tool_sequence": [
+        "list_files",
+        "search",
+        "read",
+        "search",
+        "edit",
+        "test"
+      ],
+      "trace_sha256": "34a1abce4e9be5adc9278c0c8d1be234f30b54a1a057ef3fe9b0c163baaeb9b4"
+    },
+    {
+      "task_id": "clamp-upper-bound",
+      "profile": "tool_retrieval",
+      "success": true,
+      "model_calls": 6,
+      "tool_calls": 7,
+      "input_tokens": 8241,
+      "output_tokens": 487,
+      "elapsed_ms": 5957,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "tool_sequence": [
+        "retrieve",
+        "list_files",
+        "read",
+        "read",
+        "read",
+        "edit",
+        "test"
+      ],
+      "trace_sha256": "f0e4f4213ab17231ff8767a3982210021f1ce498bea9cac18c998e96bcbf59ee"
+    },
+    {
+      "task_id": "normalize-repeated-space",
+      "profile": "tool",
+      "success": true,
+      "model_calls": 7,
+      "tool_calls": 8,
+      "input_tokens": 9526,
+      "output_tokens": 580,
+      "elapsed_ms": 6721,
+      "changed_files": [
+        "text_utils.py"
+      ],
+      "tool_sequence": [
+        "list_files",
+        "read",
+        "search",
+        "read",
+        "search",
+        "read",
+        "edit",
+        "test"
+      ],
+      "trace_sha256": "4702b55914a80eef39d743473604eb238f0441be3e6e88158697f263bf2537ce"
+    },
+    {
+      "task_id": "normalize-repeated-space",
+      "profile": "tool_retrieval",
+      "success": true,
+      "model_calls": 5,
+      "tool_calls": 6,
+      "input_tokens": 7106,
+      "output_tokens": 486,
+      "elapsed_ms": 5259,
+      "changed_files": [
+        "text_utils.py"
+      ],
+      "tool_sequence": [
+        "retrieve",
+        "list_files",
+        "read",
+        "search",
+        "edit",
+        "test"
+      ],
+      "trace_sha256": "654c95bfb4a4e8774bcf186ae93fb725f78b82d8078c988c670b351bac4ec0d2"
+    },
+    {
+      "task_id": "pagination-partial-page",
+      "profile": "tool",
+      "success": true,
+      "model_calls": 6,
+      "tool_calls": 7,
+      "input_tokens": 7708,
+      "output_tokens": 531,
+      "elapsed_ms": 6113,
+      "changed_files": [
+        "pagination.py"
+      ],
+      "tool_sequence": [
+        "list_files",
+        "read",
+        "search",
+        "read",
+        "read",
+        "edit",
+        "test"
+      ],
+      "trace_sha256": "acd65e6430ecd3a8180256b97b0f9a963a0ca748b117dc3d536aeba89d66d1ee"
+    },
+    {
+      "task_id": "pagination-partial-page",
+      "profile": "tool_retrieval",
+      "success": true,
+      "model_calls": 4,
+      "tool_calls": 4,
+      "input_tokens": 4570,
+      "output_tokens": 392,
+      "elapsed_ms": 3605,
+      "changed_files": [
+        "pagination.py"
+      ],
+      "tool_sequence": [
+        "retrieve",
+        "read",
+        "edit",
+        "test"
+      ],
+      "trace_sha256": "1a5eddcce6cd99dd075418348c3c3aaf3d655657ab754fc106262af0355dae17"
+    }
+  ],
+  "finding": "Both profiles solved 4/4 tasks. Local lexical retrieval reduced average calls, tokens, and latency in this small diagnostic, but did not demonstrate an accuracy gain.",
+  "limitations": [
+    "Four small self-authored tasks with one rollout per profile.",
+    "Not SWE-bench and not a real GitHub issue benchmark.",
+    "Lexical BM25-style code retrieval without embeddings; not semantic vector RAG.",
+    "The result requires confirmation on larger real-repository tasks with multiple samples."
+  ]
+}

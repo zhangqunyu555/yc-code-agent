@@ -102,7 +102,12 @@ def run_task(
         if profile == "direct":
             registry = ToolRegistry()
         elif read_only:
-            registry = build_tools(root, execution_mode=execution_mode, read_only=True)
+            registry = build_tools(
+                root,
+                execution_mode=execution_mode,
+                read_only=True,
+                allowed_tools={"list_files", "read", "search"},
+            )
         else:
             registry = build_tools(
                 root,

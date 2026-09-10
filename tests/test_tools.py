@@ -23,6 +23,16 @@ class WorkspaceTest(unittest.TestCase):
         self.workspace.edit("code.py", "beta", "gamma")
         self.assertEqual((self.root / "code.py").read_text(), "alpha\ngamma\n")
 
+    def test_retrieve_ranks_relevant_code_chunk(self):
+        (self.root / "cache.py").write_text(
+            "def is_expired(created_at, ttl, now):\n    return now >= created_at + ttl\n",
+            encoding="utf-8",
+        )
+        (self.root / "formatting.py").write_text("def title(text):\n    return text.title()\n", encoding="utf-8")
+        result = self.workspace.retrieve("cache entry expiration ttl", top_k=1, chunk_lines=20)
+        self.assertIn("cache.py", result)
+        self.assertIn("is_expired", result)
+
     def test_read_caps_large_files_and_points_to_next_range(self):
         (self.root / "large.py").write_text("\n".join(str(index) for index in range(500)), encoding="utf-8")
         result = self.workspace.read("large.py")

@@ -1,0 +1,10 @@
+{
+  "id": "cache-expiration-boundary",
+  "prompt": "Cache entry 在恰好达到 TTL expiration boundary 时仍被视为有效；应在到达边界时立即过期。",
+  "source": {"kind": "self-authored-fixture", "license": "MIT"},
+  "allowed_paths": ["cache.py"],
+  "setup_edits": [{"path": "cache.py", "old": "return now >= created_at + ttl", "new": "return now > created_at + ttl"}],
+  "public_test_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+  "verifier_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+  "verifier_files": [{"path": "tests/test_hidden.py", "content": "import unittest\nfrom cache import is_expired\n\nclass HiddenTest(unittest.TestCase):\n    def test_exact_expiration_boundary(self):\n        self.assertTrue(is_expired(10, 5, 15))\n"}]
+}

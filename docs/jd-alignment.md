@@ -13,6 +13,7 @@ YC-Code Agent 是独立实现的轻量代码 Agent 与 rollout/evaluation harnes
 | Model → tool → observation 循环 | `core.py` | OpenClaw agent loop、SWE-agent ACI |
 | Provider 与消息协议 | `providers.py` | OpenCode/Claude Code provider 与 context 管理 |
 | 文件发现、读写和运行级工具权限 | `tools.py` | OpenCode permissions、Claude Code hooks |
+| 本地词法代码块检索 | `tools.py` 的 `retrieve` | 代码 RAG、语义检索与 reranker |
 | 长工具输出压缩 | `core.py` | OpenClaw/Claude Code context compaction |
 | 会话与任务持久化 | `state.py` | OpenClaw session、memory 与 queue |
 | 完整运行轨迹 | `trace.py` | SWE-agent trajectory |
@@ -30,7 +31,7 @@ YC-Code Agent 是独立实现的轻量代码 Agent 与 rollout/evaluation harnes
 
 只有真实运行结果可以写成模型成功率或提升比例。参考修复通过 20/20 只能证明任务和 verifier 有效。
 
-当前已完成一次真实开源仓库上的合成回归诊断，证明多文件发现、定位、编辑和 verifier 链路可运行。下一阶段需要将这一过程固化为通用任务协议，并扩大到公开任务子集；单题成功不代表仓库级成功率。
+当前已完成一次公开开源仓库上的合成回归诊断，证明多文件发现、定位、编辑和 verifier 链路可运行。它不是上游真实 Issue，也不是 SWE-bench 任务。下一阶段需要扩大到官方 SWE-bench 真实 Issue 子集；单题成功不代表仓库级成功率。
 
 通用任务协议现已由 `repo-eval` 固化：JSON manifest 声明来源版本、回归注入、公开测试、隐藏 verifier 和允许修改路径；每次运行复制独立工作区并输出 patch、轨迹和资源统计。下一步是用同一协议扩大真实任务数量，而不是增加并行子 Agent。
 

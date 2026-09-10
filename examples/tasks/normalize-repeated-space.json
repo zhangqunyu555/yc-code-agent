@@ -1,0 +1,10 @@
+{
+  "id": "normalize-repeated-space",
+  "prompt": "Text normalization 只去除了首尾空白，没有把内部连续 whitespace（包括换行和制表符）折叠为单个空格。",
+  "source": {"kind": "self-authored-fixture", "license": "MIT"},
+  "allowed_paths": ["text_utils.py"],
+  "setup_edits": [{"path": "text_utils.py", "old": "return \" \".join(text.split())", "new": "return text.strip()"}],
+  "public_test_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+  "verifier_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+  "verifier_files": [{"path": "tests/test_hidden.py", "content": "import unittest\nfrom text_utils import normalize_space\n\nclass HiddenTest(unittest.TestCase):\n    def test_repeated_mixed_whitespace(self):\n        self.assertEqual(normalize_space('  hello\\n\\tworld  '), 'hello world')\n"}]
+}
