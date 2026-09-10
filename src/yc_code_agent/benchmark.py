@@ -107,7 +107,8 @@ def run_task(
             registry = build_tools(
                 root,
                 execution_mode=execution_mode,
-                allowed_tools={"list_files", "read", "search", "edit", "bash", "test"},
+                allowed_tools={"list_files", "read", "search", "edit", "test"},
+                writable_paths=set(task.allowed_paths),
             )
         trace_path = Path(trace_dir) / f"{task.id}-{profile}-sample-{sample_id}.jsonl" if trace_dir else None
         agent = Agent(provider, registry, max_steps=1 if profile == "direct" else 12, trace=JsonlTrace(trace_path) if trace_path else None)

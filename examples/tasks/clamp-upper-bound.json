@@ -1,0 +1,42 @@
+{
+  "id": "clamp-upper-bound",
+  "prompt": "clamp(value, low, high) 对超过 high 的输入返回了原值，请修复上界处理，同时保持区间内和下界行为。",
+  "source": {
+    "kind": "self-authored-fixture",
+    "license": "MIT"
+  },
+  "allowed_paths": [
+    "calculator.py"
+  ],
+  "setup_edits": [
+    {
+      "path": "calculator.py",
+      "old": "return min(max(value, low), high)",
+      "new": "return max(value, low)"
+    }
+  ],
+  "public_test_command": [
+    "python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-v"
+  ],
+  "verifier_command": [
+    "python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-v"
+  ],
+  "verifier_files": [
+    {
+      "path": "tests/test_hidden.py",
+      "content": "import unittest\n\nfrom calculator import clamp\n\n\nclass ClampHiddenTest(unittest.TestCase):\n    def test_upper_bound(self):\n        self.assertEqual(clamp(12, 0, 10), 10)\n\n\nif __name__ == '__main__':\n    unittest.main()\n"
+    }
+  ]
+}

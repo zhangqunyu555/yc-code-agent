@@ -12,6 +12,7 @@ from pathlib import Path
 from .benchmark import PROFILES, build_preferences, build_rollout_dataset, run_task, summarize, validate_catalog
 from .core import Agent
 from .providers import DemoProvider, OpenAICompatibleProvider
+from .repo_eval import RepoTask, run_repo_task
 from .state import StateStore
 from .task_catalog import TASKS
 from .tools import build_tools
@@ -25,7 +26,7 @@ def _provider_settings(args: argparse.Namespace) -> dict[str, object]:
         settings = {
             "model": args.model or os.environ.get("YC_AGENT_MODEL", "deepseek-v4-flash"),
             "base_url": args.base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-            "api_key_env": "DEEPSEEK_API_KEY",
+            "api_key_env": getattr(args, "api_key_env", None) or "DEEPSEEK_API_KEY",
             "request_options": {"thinking": {"type": thinking}},
         }
         if getattr(args, "temperature", None) is not None:
@@ -37,7 +38,7 @@ def _provider_settings(args: argparse.Namespace) -> dict[str, object]:
     settings = {
         "model": model,
         "base_url": args.base_url or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        "api_key_env": "OPENAI_API_KEY",
+        "api_key_env": getattr(args, "api_key_env", None) or os.environ.get("YC_AGENT_API_KEY_ENV", "OPENAI_API_KEY"),
     }
     if getattr(args, "temperature", None) is not None:
         settings["request_options"] = {"temperature": args.temperature}
@@ -54,6 +55,7 @@ def _add_provider_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--provider", choices=("deepseek", "openai-compatible"))
     parser.add_argument("--model")
     parser.add_argument("--base-url")
+    parser.add_argument("--api-key-env", help="environment variable containing the API key")
     parser.add_argument("--thinking", choices=("enabled", "disabled"))
     parser.add_argument("--temperature", type=float)
 
@@ -94,6 +96,15 @@ def main(argv: list[str] | None = None) -> None:
     benchmark.add_argument("--samples", type=int, default=1, help="independent rollouts per task/profile")
     benchmark.add_argument("--execution", choices=("sandbox", "local"), default="sandbox")
     benchmark.add_argument("--output")
+
+    repo_eval = subparsers.add_parser("repo-eval", help="run one manifest-defined repair in an isolated repository copy")
+    repo_eval.add_argument("task", help="JSON task manifest")
+    repo_eval.add_argument("--source-repo", required=True, help="authorized local repository at the task base revision")
+    _add_provider_args(repo_eval)
+    repo_eval.add_argument("--execution", choices=("sandbox", "local"), default="sandbox")
+    repo_eval.add_argument("--max-steps", type=int, default=12)
+    repo_eval.add_argument("--max-context-chars", type=int, default=100_000)
+    repo_eval.add_argument("--output")
 
     preferences = subparsers.add_parser("preferences", help="derive trace preference pairs from benchmark results")
     preferences.add_argument("input")
@@ -160,6 +171,30 @@ def main(argv: list[str] | None = None) -> None:
         _write_json(args.output, payload)
         print(json.dumps({"catalog_size": payload["catalog_size"], "passed": payload["passed"], "output": args.output}, ensure_ascii=False))
         raise SystemExit(0 if payload["passed"] == payload["catalog_size"] else 1)
+
+    if args.command == "repo-eval":
+        task = RepoTask.load(args.task)
+        output = args.output or f"repo-eval-results/{task.id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+        trace = str(Path(output).with_suffix("")) + "-trace.jsonl"
+        result = run_repo_task(
+            task,
+            args.source_repo,
+            lambda: _provider(args),
+            execution_mode=args.execution,
+            max_steps=args.max_steps,
+            max_context_chars=args.max_context_chars,
+            trace_path=trace,
+        )
+        _write_json(output, result)
+        print(json.dumps({
+            "task_id": task.id,
+            "success": result["success"],
+            "model_calls": result["model_calls"],
+            "tool_calls": result["tool_calls"],
+            "output": output,
+            "trace": trace,
+        }, ensure_ascii=False, indent=2))
+        raise SystemExit(0 if result["success"] else 1)
 
     if args.command == "preferences":
         payload = json.loads(Path(args.input).read_text(encoding="utf-8"))

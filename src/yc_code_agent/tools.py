@@ -17,10 +17,21 @@ MAX_READ_LINES = 400
 
 
 class Workspace:
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, *, writable_paths: set[str] | None = None) -> None:
         self.root = Path(root).expanduser().resolve()
         if not self.root.is_dir():
             raise ValueError(f"workspace is not a directory: {self.root}")
+        self.writable_paths = None
+        if writable_paths is not None:
+            self.writable_paths = set()
+            for path in writable_paths:
+                relative = Path(path)
+                if not path or relative.is_absolute() or ".." in relative.parts:
+                    raise ValueError(f"invalid writable path: {path}")
+                target = (self.root / relative).resolve()
+                if not target.is_relative_to(self.root):
+                    raise ValueError(f"writable path escapes workspace: {path}")
+                self.writable_paths.add(str(relative))
 
     def path(self, relative: str, *, must_exist: bool = False) -> Path:
         if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
@@ -87,9 +98,16 @@ class Workspace:
                 continue
         return "\n".join(matches)
 
+    def _ensure_writable(self, path: str) -> None:
+        resolved = (self.root / path).resolve()
+        relative = str(resolved.relative_to(self.root)) if resolved.is_relative_to(self.root) else path
+        if self.writable_paths is not None and relative not in self.writable_paths:
+            raise PermissionError(f"path is read-only for this run: {path}")
+
     def edit(self, path: str, old: str, new: str) -> str:
         if not old:
             raise ValueError("old text must not be empty")
+        self._ensure_writable(path)
         target = self.path(path, must_exist=True)
         content = target.read_text(encoding="utf-8")
         count = content.count(old)
@@ -105,6 +123,7 @@ class Workspace:
     def write(self, path: str, content: str) -> str:
         if not isinstance(content, str) or len(content.encode("utf-8")) > 1_000_000:
             raise ValueError("content must be UTF-8 text no larger than 1 MB")
+        self._ensure_writable(path)
         target = self.path(path)
         if not target.parent.is_dir():
             raise ValueError(f"parent directory does not exist: {target.parent.relative_to(self.root)}")
@@ -219,8 +238,9 @@ def build_tools(
     execution_mode: str = "sandbox",
     read_only: bool = False,
     allowed_tools: set[str] | None = None,
+    writable_paths: set[str] | None = None,
 ) -> ToolRegistry:
-    ws = Workspace(workspace)
+    ws = Workspace(workspace, writable_paths=writable_paths)
     runner = CommandRunner(ws, execution_mode)
     tools = [
         Tool("list_files", "List non-hidden files below a workspace path.", {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}, "additionalProperties": False}, ws.list_files),

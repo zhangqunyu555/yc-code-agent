@@ -38,6 +38,28 @@ class WorkspaceTest(unittest.TestCase):
         self.assertEqual({item["function"]["name"] for item in registry.specs()}, {"list_files", "read"})
         self.assertFalse(json.loads(registry.execute("write", {"path": "x", "content": "x"}))["ok"])
 
+    def test_write_scope_blocks_protected_files(self):
+        (self.root / "solution.py").write_text("old", encoding="utf-8")
+        (self.root / "test_solution.py").write_text("protected", encoding="utf-8")
+        registry = build_tools(
+            self.root,
+            execution_mode="disabled",
+            writable_paths={"solution.py"},
+        )
+        allowed = json.loads(registry.execute("edit", {"path": "solution.py", "old": "old", "new": "new"}))
+        blocked = json.loads(registry.execute("edit", {"path": "test_solution.py", "old": "protected", "new": "fake"}))
+        self.assertTrue(allowed["ok"])
+        self.assertFalse(blocked["ok"])
+        self.assertEqual((self.root / "test_solution.py").read_text(), "protected")
+
+    def test_write_scope_does_not_follow_an_allowed_symlink(self):
+        (self.root / "protected.py").write_text("secret", encoding="utf-8")
+        os.symlink(self.root / "protected.py", self.root / "solution.py")
+        registry = build_tools(self.root, execution_mode="disabled", writable_paths={"solution.py"})
+        result = json.loads(registry.execute("edit", {"path": "solution.py", "old": "secret", "new": "changed"}))
+        self.assertFalse(result["ok"])
+        self.assertEqual((self.root / "protected.py").read_text(), "secret")
+
     def test_escape_and_ambiguous_edit_are_rejected(self):
         with self.assertRaises(PermissionError):
             self.workspace.read("../outside")

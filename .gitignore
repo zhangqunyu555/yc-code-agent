@@ -8,5 +8,6 @@ work/*
 !.gitkeep
 traces/
 benchmark-results/
+repo-eval-results/
 .coverage
 .yc-agent/

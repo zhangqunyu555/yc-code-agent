@@ -15,6 +15,7 @@
 - `Direct LLM`、`Read-only Agent`、`Tool Agent`、`Tool Agent + Retry` 四组同任务评测。
 - 成功率、首次成功率、工具调用、修复轮数、Token、延迟、改动行数和无关改动统计。
 - 同一任务多次 rollout、经验性 Pass@k，以及测试、patch 范围和工具成本组成的可解释 reward。
+- Manifest 驱动的仓库评测入口：固定源版本、隔离副本、故障注入、写路径白名单、受保护 verifier、统一 patch 与运行证据。
 - 导出 verifier 标注的 episode JSONL、同任务组内标准化 advantage 和 chosen/rejected 轨迹对，为后续 SFT、DPO 或 Agentic RL 数据适配提供输入。
 
 ## 架构
@@ -102,6 +103,43 @@ PYTHONPATH=src python3 -m yc_code_agent run --next-goal
 
 也可以把 `.env.example` 中的变量复制到自己的 shell 配置，但不要把真实密钥写进仓库。其他兼容服务使用 `--provider openai-compatible --model MODEL --base-url URL`。密钥只从环境读取，不写入参数、轨迹或仓库。
 
+后续把 Qwen 部署为 vLLM 或其他 OpenAI-compatible 服务时，不需要改 Agent Loop：
+
+```bash
+export OPENAI_API_KEY=local
+PYTHONPATH=src python3 -m yc_code_agent run \
+  "检查并修复失败测试" \
+  --provider openai-compatible \
+  --model YOUR_QWEN_MODEL \
+  --base-url http://127.0.0.1:8000/v1 \
+  --workspace /path/to/repository
+```
+
+若服务使用其他密钥变量，可加 `--api-key-env YOUR_KEY_VARIABLE`。
+
+## 仓库级任务 Harness
+
+`repo-eval` 使用 JSON manifest 描述任务，在一次性仓库副本中运行。模型看得到仓库与公开测试，但 verifier 文件只在 Agent 运行前后短暂注入，运行期间不可读取；写工具也只能修改 `allowed_paths`。
+
+仓库内提供了一个可审计的任务格式示例：
+
+```bash
+PYTHONPATH=src python3 -m yc_code_agent repo-eval \
+  examples/tasks/clamp-upper-bound.json \
+  --source-repo examples/sample_repo \
+  --execution local
+```
+
+该命令默认使用真实模型。任务 manifest 包含：
+
+- `source`：仓库、许可证和可选固定 commit；声明 commit 时运行前会严格核验。
+- `setup_edits`：在隔离副本中注入的确定性回归。
+- `public_test_command`：告诉 Agent 可以运行的公开测试。
+- `verifier_files` 与 `verifier_command`：Agent 不可见的最终验证。
+- `allowed_paths`：本次任务唯一允许修改的生产文件。
+
+结果保存在 `repo-eval-results/`，包含初始/最终 verifier、实际改动文件、unified diff、模型与工具调用、Token、延迟和轨迹路径。源仓库不会被修改。普通终端对不可信仓库使用 `sandbox`；Codex 嵌套沙箱内仅对自建可信任务使用 `local`。
+
 ## 四组评测
 
 先用 1 题确认 API 和模型格式，再运行完整 20 题。`--samples` 控制每个任务和配置的独立 rollout 次数：
@@ -157,4 +195,4 @@ PYTHONPATH=src python3 -m yc_code_agent dataset benchmark-results/RESULT.json \
 
 ## 项目边界
 
-当前命令执行器面向 Python 小任务，刻意只允许 `python -m unittest/pytest`、`pytest`、`git diff/status`。当评测扩展到多语言仓库时，再增加容器执行器和按任务声明的命令策略。并行子 Agent 和在线 RL 不参与当前实验变量，避免把评测差异混入未验证的复杂度。当前 JSONL 是框架无关的中间数据，不声称已经兼容某个训练器的专用 schema。
+当前命令执行器面向 Python 小任务，刻意只允许 `python -m unittest/pytest`、`pytest`、`git diff/status`。当评测扩展到多语言仓库时，再增加容器执行器和按任务声明的命令策略。并行子 Agent、CoE 和在线 RL 不参与当前实验变量，避免把评测差异混入未验证的复杂度。当前先稳定单 Agent 的仓库执行与评测协议；JSONL 是框架无关的中间数据，不声称已经兼容某个训练器的专用 schema。
