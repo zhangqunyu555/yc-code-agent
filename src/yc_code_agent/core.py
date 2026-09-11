@@ -7,6 +7,9 @@ import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from .context import ContextLimitExceeded, ContextManager
+from .tools import Tool
+
 
 class RetryableProviderError(RuntimeError):
     """A transient model-provider failure."""
@@ -56,6 +59,7 @@ class Agent:
         provider_retries: int = 2,
         max_context_chars: int = 100_000,
         trace: Trace | None = None,
+        artifact_dir: str | None = None,
     ) -> None:
         if max_steps < 1 or provider_retries < 0 or max_context_chars < 1000:
             raise ValueError("max_steps must be positive, retries non-negative, and context at least 1000 chars")
@@ -66,6 +70,15 @@ class Agent:
         self.provider_retries = provider_retries
         self.max_context_chars = max_context_chars
         self.trace = trace
+        trace_path = getattr(trace, "path", None)
+        self.context = ContextManager(max_context_chars, artifact_dir or (str(trace_path) + ".artifacts" if trace_path else None))
+        if self.tools.specs():
+            self.tools = self.tools.with_tool(Tool(
+                "read_artifact", "Read a character range of an archived tool result by its artifact ID.",
+                {"type": "object", "properties": {"artifact_id": {"type": "string"},
+                 "offset": {"type": "integer"}, "limit": {"type": "integer"}},
+                 "required": ["artifact_id"], "additionalProperties": False}, self.context.read_artifact,
+            ))
 
     def _event(self, event: str, **data: Any) -> None:
         if self.trace:
@@ -82,25 +95,6 @@ class Agent:
                 time.sleep(0.25 * (2**attempt))
         raise AssertionError("unreachable")
 
-    def _compact_context(self, messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
-        total = sum(len(str(message.get("content") or "")) for message in messages)
-        if total <= self.max_context_chars:
-            return messages, 0
-        compacted = [dict(message) for message in messages]
-        removed = 0
-        target = max(128, self.max_context_chars // 4)
-        for message in compacted:
-            content = message.get("content")
-            if message.get("role") != "tool" or not isinstance(content, str) or len(content) <= target:
-                continue
-            keep = max(32, target // 2)
-            replacement = f"{content[:keep]}\n...[tool output compacted]...\n{content[-keep:]}"
-            removed += len(content) - len(replacement)
-            message["content"] = replacement
-            if total - removed <= self.max_context_chars:
-                break
-        return compacted, removed
-
     def run(
         self,
         prompt: str,
@@ -114,10 +108,16 @@ class Agent:
         self._event("agent_start", prompt=prompt)
 
         for step in range(1, self.max_steps + 1):
-            messages, removed = self._compact_context(messages)
-            if removed:
-                self._event("context_compacted", step=step, removed_chars=removed)
-            reply = self._complete(messages)
+            try:
+                request_messages, context_info = self.context.prepare(messages, self.tools.specs())
+            except ContextLimitExceeded as exc:
+                exc.result = AgentResult("", messages, model_calls, tool_calls, input_tokens, output_tokens,
+                                         int((time.monotonic() - started) * 1000))
+                self._event("agent_error", error="context_limit", detail=str(exc))
+                raise
+            self._event("model_request", step=step, messages=request_messages,
+                        tools=self.tools.specs(), context=context_info)
+            reply = self._complete(request_messages)
             if reply.get("role") != "assistant":
                 raise ValueError("provider reply must have role='assistant'")
             messages.append(reply)

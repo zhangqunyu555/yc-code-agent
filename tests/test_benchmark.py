@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from yc_code_agent.benchmark import build_preferences, build_rollout_dataset, run_task, summarize, validate_catalog
 from yc_code_agent.task_catalog import TASKS
@@ -53,6 +54,40 @@ class ToolLoopProvider:
 
 
 class BenchmarkTest(unittest.TestCase):
+    def test_retry_receives_only_public_feedback_and_hidden_verifier_runs_last(self):
+        class NoFixProvider:
+            last_usage = {}
+            calls = 0
+
+            def complete(self, messages, tools):
+                self.calls += 1
+                self.last_messages = messages
+                self_test.assertNotIn("HIDDEN_CANARY", json.dumps(messages))
+                return {"role": "assistant", "content": "done"}
+
+        self_test = self
+        provider = NoFixProvider()
+
+        def final_verifier(*args):
+            self.assertEqual(provider.calls, 2)
+            return False, "HIDDEN_CANARY"
+
+        with patch("yc_code_agent.benchmark.CommandRunner.run", return_value="exit_code=1\nPUBLIC_CANARY"), \
+             patch("yc_code_agent.benchmark._evaluate", side_effect=final_verifier) as verify:
+            result = run_task(TASKS[0], "tool_retry", lambda: provider, execution_mode="local")
+        verify.assert_called_once()
+        self.assertIn("PUBLIC_CANARY", json.dumps(provider.last_messages))
+        self.assertIsNone(result["first_success"])
+        self.assertEqual(result["protocol"], "public-feedback-v2")
+
+    def test_hidden_failure_cannot_trigger_an_extra_retry(self):
+        provider = OracleProvider(TASKS[0])
+        with patch("yc_code_agent.benchmark._evaluate", return_value=(False, "HIDDEN_CANARY")) as verify:
+            result = run_task(TASKS[0], "tool_retry", lambda: provider, execution_mode="local")
+        self.assertEqual(result["rounds"], 1)
+        self.assertFalse(result["success"])
+        verify.assert_called_once()
+
     def test_catalog_has_twenty_unique_valid_tasks(self):
         self.assertEqual(len(TASKS), 20)
         self.assertEqual(len({task.id for task in TASKS}), 20)

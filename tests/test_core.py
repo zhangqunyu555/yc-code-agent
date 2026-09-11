@@ -84,7 +84,9 @@ class AgentTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             Path(directory, "large.txt").write_text("x" * 5000, encoding="utf-8")
             provider = ContextProvider()
-            Agent(provider, build_tools(directory, execution_mode="disabled", read_only=True), max_context_chars=1000).run("read")
+            result = Agent(provider, build_tools(directory, execution_mode="disabled", read_only=True),
+                           max_context_chars=4000, artifact_dir=str(Path(directory, "artifacts"))).run("read")
+            self.assertIn("x" * 5000, result.messages[-2]["content"])
         self.assertIn("tool output compacted", provider.observed)
         self.assertLess(len(provider.observed), 1000)
 

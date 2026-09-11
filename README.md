@@ -2,6 +2,23 @@
 
 一个从零实现、可审计的 Python 代码 Agent、rollout 与评测闭环。项目把模型调用、Agent Loop、工作区工具、错误重试、轨迹记录、四组对照评测和后训练数据导出连成一条可运行链路；本机不需要 GPU，真实模型通过 OpenAI-compatible API 提供。
 
+## 0.6 学习版收尾
+
+本版固定为 Single Code Agent 学习项目。初学者从 [完整中文学习教程](docs/learning-guide.md) 开始；版本验收与边界见 [收尾说明](docs/closeout.md)。
+
+- 上下文：完整会话与模型请求视图分离；大工具结果落盘并通过 `read_artifact` 回读。超过预算时整组移除较早的 assistant/tool 交互，保留 system、全部用户消息与最新完整交互；不可压缩到预算内时停止并保存部分结果。
+- `--max-context-chars` 现在计算序列化 messages + tools 的字符数，包含工具参数与 reasoning 字段；不是精确 Token 或 HTTP 请求大小上限。JSONL 的 `model_request` 保存实际交给 Provider 的消息、工具与裁剪记录。
+- 评测协议 `public-feedback-v2`：Retry 只看公开开发测试与执行错误；隐藏测试仅在所有模型交互结束后执行一次。第一轮结果未独立评分时 `first_success` 为 null。
+- 当前自建公开测试仅检查函数可调用，不能提供充分的语义修复反馈；不要据此宣称 Retry 能力提高。旧实验保留为历史诊断，不能与本版协议直接混合比较。
+
+离线完整修复演示（使用预先写好的动作，不是模型成功率）：
+
+```bash
+PYTHONPATH=src python3 examples/repair_walkthrough.py
+```
+
+命令会输出实际 Patch，并在 `traces/walkthrough-*/` 保存结果和轨迹。仅对仓库自建可信示例使用 local 执行。
+
 ## 已实现
 
 - 有界 Agent Loop：模型回复、工具调用、结果回填、停止条件、长工具输出压缩和临时 Provider 错误重试。
@@ -173,9 +190,9 @@ PYTHONPATH=src python3 -m yc_code_agent benchmark --limit 20 --samples 3 --tempe
 | `direct` | 提示中直接给源码，输出结构化 edit | 否 |
 | `read_only` | 可读取、搜索，最终输出结构化 edit | 否 |
 | `tool` | 可读、搜索、编辑并运行公开测试 | 否 |
-| `tool_retry` | 与 Tool Agent 相同 | 最多再修复一轮 |
+| `tool_retry` | 与 Tool Agent 相同，仅公开测试/执行失败触发续修 | 最多再修复一轮 |
 
-同一次实验应固定模型、任务版本、执行模式和 Agent 步数预算。当前仓库只保存参考修复验证结果，不冒充真实模型对比结果。
+同一次实验应固定模型、任务版本、执行模式、评测协议和 Agent 步数预算。参考修复验证与模型实验分别标注，不将参考修复通过率作为模型成功率。
 
 仓库另保存一次3题诊断实验 [`outputs/agent-ablation-smoke.json`](outputs/agent-ablation-smoke.json)：四组均为3/3，Tool Agent未在简单单文件题上提高准确率，却消耗了约46倍于Direct的Token。该结果用于暴露并修复工具权限、无关文件写入和步数上限统计问题；由于只有3题且每题1次采样，不作为正式Benchmark结论。
 

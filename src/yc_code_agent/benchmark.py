@@ -120,11 +120,11 @@ def run_task(
         rounds = 2 if profile == "tool_retry" else 1
         history = None
         totals = {"model_calls": 0, "tool_calls": 0, "input_tokens": 0, "output_tokens": 0}
-        success = first_success = False
+        success = False
         output = error = ""
 
         for round_number in range(1, rounds + 1):
-            prompt = _prompt(task, profile) if round_number == 1 else f"外部测试失败，请继续修复。测试输出：\n{output}"
+            prompt = _prompt(task, profile) if round_number == 1 else f"公开开发测试或执行失败，请继续修复。反馈：\n{output}"
             try:
                 result = agent.run(prompt, history=history)
                 history = result.messages
@@ -132,9 +132,11 @@ def run_task(
                     totals[key] += getattr(result, key)
                 if profile in {"direct", "read_only"}:
                     _apply_json_edits(result.answer, workspace)
-                success, output = _evaluate(task, root, execution_mode)
-                first_success = success if round_number == 1 else first_success
-                if success:
+                public_output = CommandRunner(workspace, execution_mode).run(
+                    ["python3", "-m", "unittest", "discover", "-s", "tests", "-q"]
+                )
+                output = public_output
+                if public_output.startswith("exit_code=0\n"):
                     error = ""
                     break
             except Exception as exc:
@@ -145,10 +147,14 @@ def run_task(
                 error = str(exc)
                 output = error
 
+        # Final hidden assessment happens exactly once, after all model interaction.
+        success, hidden_output = _evaluate(task, root, execution_mode)
         after = _snapshot(root)
         changed_files, changed_lines = _changed(before, after)
         irrelevant = [path for path in changed_files if path not in task.allowed_paths]
         elapsed_ms = int((time.monotonic() - started) * 1000)
+        success = success and not irrelevant
+        first_success = success if round_number == 1 else None
         reward_components = {
             "tests": 1.0 if success else 0.0,
             "changed_lines": -0.002 * changed_lines,
@@ -159,6 +165,7 @@ def run_task(
         return {
             "task_id": task.id,
             "profile": profile,
+            "protocol": "public-feedback-v2",
             "sample_id": sample_id,
             "success": success,
             "first_success": first_success,
@@ -170,7 +177,8 @@ def run_task(
             "irrelevant_changes": irrelevant,
             "reward": round(reward, 6),
             "reward_components": {key: round(value, 6) for key, value in reward_components.items()},
-            "test_output": output[-2000:],
+            "test_output": hidden_output[-2000:],
+            "public_feedback": output[-2000:],
             "error": error,
             "trace": str(trace_path) if trace_path else None,
         }
@@ -205,7 +213,8 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
             "samples_per_task": max(len(samples) for samples in tasks.values()),
             "success_rate": sum(row["success"] for row in rows) / len(rows),
             "pass_at_k": sum(any(row["success"] for row in samples) for samples in tasks.values()) / len(tasks),
-            "first_success_rate": sum(row["first_success"] for row in rows) / len(rows),
+            "first_success_rate": (sum(bool(row["first_success"]) for row in rows) / len(rows)
+                                   if all(row["first_success"] is not None for row in rows) else None),
             "avg_reward": sum(row["reward"] for row in rows) / len(rows),
             "avg_tool_calls": sum(row["tool_calls"] for row in rows) / len(rows),
             "avg_latency_ms": sum(row["elapsed_ms"] for row in rows) / len(rows),
@@ -243,6 +252,7 @@ def build_rollout_dataset(results: list[dict[str, Any]]) -> list[dict[str, Any]]
             continue
         episodes.append({
             "task_id": row["task_id"],
+            "protocol": row.get("protocol", "legacy-hidden-feedback"),
             "profile": row["profile"],
             "sample_id": row.get("sample_id", 0),
             "messages": load_trajectory(trace),

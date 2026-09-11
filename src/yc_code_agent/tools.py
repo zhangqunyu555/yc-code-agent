@@ -291,6 +291,11 @@ class ToolRegistry:
     def __init__(self, tools: list[Tool] | None = None) -> None:
         self._tools = {tool.name: tool for tool in tools or []}
 
+    def with_tool(self, tool: Tool) -> "ToolRegistry":
+        if tool.name in self._tools:
+            raise ValueError(f"duplicate tool: {tool.name}")
+        return ToolRegistry([*self._tools.values(), tool])
+
     def specs(self) -> list[dict[str, Any]]:
         return [
             {"type": "function", "function": {"name": tool.name, "description": tool.description, "parameters": tool.parameters}}
